@@ -57,6 +57,8 @@ def _norm_record(raw, src, default_proto=None):
     # extra metadata, nothing dropped
     meta = {k[len("meta_"):]: v for k, v in raw.items() if k.startswith("meta_") and v not in (None, "")}
     rec["source_meta"] = meta
+    # fields the source already verified — checker skips re-checking these
+    rec["_provided"] = set(src.get("includes") or [])
     return rec
 
 

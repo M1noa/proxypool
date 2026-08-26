@@ -17,11 +17,11 @@
 - [x] Local run, verify output (142139 raw -> 70156 unique; http=62674 https=7808 socks4=20137 socks5=21206)
 
 ## Phase 3 — Checker
-- [ ] `lib/check.py` — async checker (protocols, anonymity, https, RT) with aiohttp
-- [ ] `lib/geoip.py` — DB-IP Lite MMDB download + lookup
-- [ ] Calibrate RT baseline (ping test endpoint N times, subtract min)
-- [ ] Wire checker into `fetch_proxies.py` (skip checks for source-provided fields)
-- [ ] Local run, verify output
+- [x] `lib/check.py` — async checker (protocols, anonymity, https, RT) with aiohttp
+- [x] `lib/geoip.py` — DB-IP Lite MMDB download + lookup
+- [x] Calibrate RT baseline (ping test endpoint N times, subtract min)
+- [x] Wire checker into `fetch_proxies.py` (skip checks for source-provided fields)
+- [x] Local run, verify output (70137 checked -> 2265 alive; http=1952 https=787 socks4=1068 socks5=976)
 
 ## Phase 4 — Workflow + docs (gated on user approval)
 - [ ] `.github/workflows/fetch.yml` — hourly cron, ubuntu-latest, python 3.11, pip install, run, commit+push as `github-actions[bot]`

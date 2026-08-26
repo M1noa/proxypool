@@ -54,6 +54,7 @@ def merge(all_records):
             cur[field] = sorted(set(cur.get(field, [])) | set(rec.get(field, [])))
 
         extend("sources")
+        cur["_provided"] = set(cur.get("_provided", set())) | set(rec.get("_provided", set()))
 
         protos = set(cur["protocols"]) | set(rec["protocols"])
         cur["protocols"] = sorted(protos)
@@ -125,6 +126,14 @@ def write_outputs(records):
 
 
 def main():
+    import argparse
+    import asyncio
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-check", action="store_true",
+                    help="skip proxy checking (fetch/merge only)")
+    args = ap.parse_args()
+
     cfg = load_jsonc(ROOT / "sources.jsonc")
     sources = cfg["sources"]
     all_records = []
@@ -144,8 +153,30 @@ def main():
 
     print(f"\nfetched {len(all_records)} raw records from {len(sources)} sources")
     records = finalize(merge(all_records))
-    counts = write_outputs(records)
     print(f"unique proxies: {len(records)}")
+
+    if not args.no_check:
+        from lib.check import check_all
+        from lib.geoip import GeoIP, download_mmdb
+
+        mmdb = download_mmdb(ROOT / ".cache")
+        geo = GeoIP(mmdb)
+        filled = 0
+        for r in records:
+            if not r["country"]:
+                c = geo.country(r["ip"])
+                if c:
+                    r["country"] = c
+                    filled += 1
+        print(f"geoip filled country for {filled} records")
+
+        print(f"checking {len(records)} proxies "
+              f"(baseline calibrated, concurrency=512)...")
+        records, stats = asyncio.run(check_all(records))
+        print(f"alive={stats['alive']} dead={stats['dead']} "
+              f"baseline={stats['baseline_ms']}ms")
+
+    counts = write_outputs(records)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
           f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
     if errors:
