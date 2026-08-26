@@ -9,7 +9,7 @@ hourly refreshed proxy lists. fetched from public sources, merged, checked live,
 | [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) / [all.txt](output/all.txt) | `ip:port` per line, sorted by response time |
 | [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
 
-sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) is guessed from the asn org name.
+sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) from [ipverse/as-metadata](https://github.com/ipverse/as-metadata) (cc0).
 
 <!-- types:start -->
 | type | proxies |

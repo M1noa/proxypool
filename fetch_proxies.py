@@ -231,14 +231,17 @@ def main():
         print(f"geoip filled country for {filled} records")
 
         # asn + hosting/residential classification for every record
-        from lib.geoip import AsnDB, download_asn_mmdb
+        from lib.geoip import AsnDB, download_asn_categories, download_asn_mmdb
 
-        asn_db = AsnDB(download_asn_mmdb(ROOT / ".cache"))
+        categories = download_asn_categories(ROOT / ".cache")
+        print(f"ipverse asn categories: {len(categories)} classified")
+        asn_db = AsnDB(download_asn_mmdb(ROOT / ".cache"), categories)
         for r in records:
             info = asn_db.lookup(r["ip"])
             r["asn"] = info["asn"]
             r["as_org"] = info["as_org"]
             r["ip_type"] = info["ip_type"]
+            r["source_meta"]["asn_category"] = info["asn_category"]
         print("asn/ip_type filled")
 
         print(f"checking {len(records)} proxies "
