@@ -102,6 +102,5 @@ class AsnDB:
             o = data.get("autonomous_system_organization")
             if isinstance(o, str):
                 org = o
-        ip_type = "hosting" if self.categories.get(num) == "hosting" else "residential"
-        return {"asn": num, "as_org": org, "ip_type": ip_type,
-                "asn_category": self.categories.get(num) or ""}
+        ip_type = self.categories.get(num) or ""
+        return {"asn": num, "as_org": org, "ip_type": ip_type}
