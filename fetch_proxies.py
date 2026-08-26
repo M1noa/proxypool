@@ -138,7 +138,8 @@ def write_outputs(records):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         t = readme.read_text()
         t = re.sub(r"total%20proxies-\d+", f"total%20proxies-{total}", t)
-        t = re.sub(r"(last%20check-)[0-9-]+", rf"\g<1>{today}", t)
+        esc = today.replace("-", "--")
+        t = re.sub(r"(last%20check-)[\d-]+?(?=-green)", rf"\g<1>{esc}", t)
         readme.write_text(t)
 
     return {k: len(v) for k, v in buckets.items()}
