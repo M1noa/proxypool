@@ -1,6 +1,6 @@
 # proxypool
 
-![proxies](https://img.shields.io/badge/total%20proxies-2630-blue) ![avg response](https://img.shields.io/badge/avg%20response-3848ms-orange) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
+![proxies](https://img.shields.io/badge/total%20proxies-2460-blue) ![avg response](https://img.shields.io/badge/avg%20response-3629ms-orange) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
 
 hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
 
