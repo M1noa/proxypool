@@ -10,3 +10,20 @@ hourly refreshed proxy lists. fetched from public sources, merged, checked live,
 | [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
 
 sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) is guessed from the asn org name.
+
+<!-- types:start -->
+| type | proxies |
+|---|---|
+| unknown | 2530 |
+| hosting | 100 |
+<!-- types:end -->
+
+<!-- countries:start -->
+| country | proxies |
+|---|---|
+| CN | 596 |
+| ID | 422 |
+| US | 114 |
+| PH | 87 |
+| other | 2412 |
+<!-- countries:end -->
