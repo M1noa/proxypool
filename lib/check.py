@@ -123,6 +123,7 @@ class Checker:
         async with sem:
             probes, trusted = self._probe_plan(rec)
             best_rt = None
+            best_raw = None
             ok = set()
             for p in probes:
                 try:
@@ -130,8 +131,10 @@ class Checker:
                 except Exception:
                     continue
                 rt = self._calibrated(ms)
+                raw = round(ms)
                 if best_rt is None or rt < best_rt:
                     best_rt = rt
+                    best_raw = raw
                 ok.add("https" if p == "https" else p)
                 if p == "https":
                     ok.add("http")
@@ -146,6 +149,7 @@ class Checker:
                 rec["protocols"] = final
             if best_rt is not None:
                 rec["response_time_ms"] = int(best_rt)
+                rec["response_time_raw_ms"] = int(best_raw)
             if "https" in rec["protocols"]:
                 rec["https"] = True
             if rec["anonymity"] == "" and "anonymity" not in (rec.get("_provided") or ()) \

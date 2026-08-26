@@ -1,6 +1,6 @@
 """fetch all sources, merge into unified records, write output files.
 
-usage: python3 fetch_proxies.py [--no-fetch-cache]
+usage: python3 fetch_proxies.py [--no-check]
 outputs:
   output/proxies.json            all records, sorted by response time
   output/{http,https,socks4,socks5}.txt   ip:port lines
@@ -93,6 +93,7 @@ def finalize(records):
         # source-reported ms; checker phase overwrites with calibrated values
         rt = r.pop("response_time", None)
         r["response_time_ms"] = int(rt) if rt is not None else None
+        r["response_time_raw_ms"] = None  # filled by checker phase
     return records
 
 
@@ -106,12 +107,17 @@ def sort_records(records):
 def write_outputs(records):
     OUT.mkdir(exist_ok=True)
     records = sort_records(records)
+    for r in records:
+        r.pop("_provided", None)
     (OUT / "proxies.json").write_text(json.dumps(records, indent=2))
 
-    buckets = {"http.txt": [], "https.txt": [], "socks4.txt": [], "socks5.txt": []}
+    buckets = {
+        "http.txt": [], "https.txt": [],
+        "socks4.txt": [], "socks5.txt": [], "all.txt": [],
+    }
     for r in records:
+        ps = sorted(r["protocols"])
         line = f"{r['ip']}:{r['port']}\n"
-        ps = set(r["protocols"])
         if "http" in ps:
             buckets["http.txt"].append(line)
         if "https" in ps or r["https"]:
@@ -120,8 +126,21 @@ def write_outputs(records):
             buckets["socks4.txt"].append(line)
         if "socks5" in ps:
             buckets["socks5.txt"].append(line)
+        buckets["all.txt"].append(f"{ps[0]}://{r['ip']}:{r['port']}\n")
     for name, lines in buckets.items():
         (OUT / name).write_text("".join(lines))
+
+    # refresh readme badges
+    readme = ROOT / "README.md"
+    if readme.exists():
+        import re
+        total = len(records)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        t = readme.read_text()
+        t = re.sub(r"total%20proxies-\d+", f"total%20proxies-{total}", t)
+        t = re.sub(r"(last%20check-)[0-9-]+", rf"\g<1>{today}", t)
+        readme.write_text(t)
+
     return {k: len(v) for k, v in buckets.items()}
 
 
@@ -154,6 +173,21 @@ def main():
     print(f"\nfetched {len(all_records)} raw records from {len(sources)} sources")
     records = finalize(merge(all_records))
     print(f"unique proxies: {len(records)}")
+
+    # carry over last run's alive proxies so they get re-checked too
+    prev_path = OUT / "proxies.json"
+    carried = 0
+    if prev_path.exists():
+        seen = {f"{r['ip']}:{r['port']}" for r in records}
+        for r in json.loads(prev_path.read_text()):
+            if f"{r['ip']}:{r['port']}" in seen:
+                continue
+            r.pop("_provided", None)
+            r.setdefault("protocols", [])
+            r.setdefault("source_meta", {})
+            records.append(r)
+            carried += 1
+        print(f"carried over {carried} proxies from previous run")
 
     if not args.no_check:
         from lib.check import check_all

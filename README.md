@@ -1,15 +1,15 @@
 # proxypool
 
-Hourly-refreshed proxy lists: 29 public sources, merged, deduped, live-checked.
+![proxies](https://img.shields.io/badge/total%20proxies-70512-blue) ![last check](https://img.shields.io/badge/last%20check-2026-08-26green)
 
-| file | contents |
+hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
+
+| file | what |
 |---|---|
-| [proxies.json](output/proxies.json) | alive proxies w/ full metadata (protocol, country, anonymity, RT), fastest first |
-| [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) | `ip:port` per line |
+| [all.txt](output/all.txt) | every alive proxy as `protocol://ip:port` |
+| [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) | `ip:port` per line, sorted by response time |
+| [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
 
-```bash
-pip install -r requirements.txt
-python3 fetch_proxies.py
-```
+sources live in [`sources.jsonc`](sources.jsonc) — adding one is config, not code.
 
-Sources are defined entirely in [`sources.jsonc`](sources.jsonc) — adding one is config, not code. Country data from [DB-IP Lite](https://db-ip.com).
+country data from [db-ip lite](https://db-ip.com).

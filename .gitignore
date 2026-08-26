@@ -1,5 +1,5 @@
 output/
-test_output/
 .cache/
 __pycache__/
 *.pyc
+AGENT.md
