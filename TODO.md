@@ -28,7 +28,7 @@
 - [x] `requirements.txt`
 - [x] `README.md` — what it does, how to use, DB-IP Lite attribution, schedule
 - [x] `AGENT.md` — short, for AI agents
-- [ ] Push to GitHub, verify first workflow run
+- [x] Push to GitHub, verify first workflow run
 
 ## Done
 - [x] Create `proxypool` dir + `git init -b main`
