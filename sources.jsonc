@@ -1,0 +1,288 @@
+// proxypool source definitions — single source of truth.
+// no per-source code exists anywhere else; everything is driven from this file.
+//
+// schema per source:
+//   name           unique id, used in output["proxies"][].sources
+//   url            fetch url; "{page}" / "{offset}" placeholders if paginated
+//   fallback_url   optional, tried if primary fetch fails
+//   method         GET (default) | POST
+//   headers        optional request headers
+//   body           optional json body (POST)
+//   format         "json" | "text" | "html"
+//   protocol       default protocol when content carries none:
+//                  "http" | "https" | "socks4" | "socks5"; omit for mixed/auto
+//   extract        format-specific:
+//     json:
+//       root          dotted path to list of items (omit = whole doc is list)
+//       ip/port/etc   dotted paths into each item object
+//       regex         applied to item when items are strings (named groups:
+//                     proto/ip/port); proto group optional
+//     text:
+//       regex         applied per line, named groups proto/ip/port
+//     html:
+//       row_selector  css selector for table/body rows
+//       <field>       css selector relative to row (e.g. "td:nth-child(1)")
+//   pagination     optional: { type: "page"|"offset", start, step,
+//                              stop: "empty", max_pages }
+//   includes       metadata this source already provides — checker skips
+//                  these fields downstream: country|anonymity|https|protocols
+{
+  "sources": [
+
+    // ---- json: object-per-proxy -------------------------------------------
+
+    {
+      "name": "proxifly",
+      "url": "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.json",
+      "format": "json",
+      "extract": {
+        "root": "",
+        "ip": "ip",
+        "port": "port",
+        "protocol": "protocol",
+        "country": "geolocation.country",
+        "anonymity": "anonymity",
+        "https": "https"
+      },
+      "source_meta": { "city": "geolocation.city", "score": "score" },
+      "includes": ["country", "anonymity", "https", "protocols"]
+    },
+
+    {
+      "name": "geonode",
+      "url": "https://proxylist.geonode.com/api/proxy-list?page={page}&limit=500&sort_by=responseTime&sort_type=asc",
+      "format": "json",
+      "pagination": { "type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 20 },
+      "extract": {
+        "root": "data",
+        "ip": "ip",
+        "port": "port",
+        "protocols": "protocols",
+        "country": "country",
+        "anonymity": "anonymityLevel",
+        "response_time": "responseTime"
+      },
+      "source_meta": { "city": "city", "isp": "isp", "org": "org" },
+      "includes": ["country", "anonymity", "protocols"]
+    },
+
+    // geonix dropped: api returns no port numbers (rendered as image hashes)
+    // argh94-https dropped: telegram mtproto proxies, not http proxies
+    // iplocate-https dropped: 404
+
+    {
+      "name": "nodemaven",
+      "url": "https://freeproxies.nodemaven.com/proxies?per_page=1000000",
+      "format": "json",
+      "extract": {
+        "root": "proxies",
+        "ip": "ip_address",
+        "port": "port",
+        "protocol": "protocol",
+        "country_name": "country",
+        "anonymity": "type"
+      },
+      "source_meta": { "latency": "latency", "upstream_source": "source_name", "response": "response", "google": "google", "last_checked_src": "last_checked" },
+      "includes": ["anonymity", "protocols"]
+    },
+
+    {
+      "name": "roundproxies",
+      "url": "https://roundproxies.com/api/get-free-proxies/?limit=500&page={page}&sort_by=lastChecked&sort_type=desc",
+      "format": "json",
+      "pagination": { "type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 20 },
+      "extract": {
+        "root": "data",
+        "ip": "ip",
+        "port": "port",
+        "protocols": "protocols",
+        "country": "country",
+        "anonymity": "anonymity",
+        "response_time": "responseTime"
+      },
+      "source_meta": { "city": "city", "isp": "isp", "org": "org", "uptime": "upTime" },
+      "includes": ["country", "anonymity", "protocols"]
+    },
+
+    {
+      "name": "proxiware",
+      "url": "https://papi.proxiware.com/proxies?page={page}",
+      "format": "json",
+      "pagination": { "type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 50 },
+      "extract": {
+        "root": "proxies",
+        "ip": "addr",
+        "port": "port",
+        "protocol": "protocol",
+        "country": "country_code",
+        "anonymity": "anonymity"
+      },
+      "source_meta": { "speed_ms": "speed_ms" },
+      "includes": ["country", "anonymity", "protocols"]
+    },
+
+    {
+      "name": "sunny9577",
+      "url": "https://sunny9577.github.io/proxy-scraper/proxies.json",
+      "format": "json",
+      // type can be "HTTP/HTTPS" (split on "/") or "http"/"socks4"
+      "extract": {
+        "root": "",
+        "ip": "ip",
+        "port": "port",
+        "protocol": "type",
+        "country_name": "country",
+        "anonymity": "anonymity"
+      },
+      "includes": ["anonymity", "protocols"]
+    },
+
+    // ---- json: string items -------------------------------------------------
+
+    {
+      "name": "proxyscrape",
+      "url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=get_proxies&proxy_format=protocolipport&format=json",
+      "fallback_url": "https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.json",
+      "format": "json",
+      "extract": {
+        "root": "proxies",
+        "ip": "ip",
+        "port": "port",
+        "protocol": "protocol",
+        "country": "ip_data.countryCode",
+        "anonymity": "anonymity",
+        "https": "ssl"
+      },
+      "source_meta": { "uptime": "uptime", "times_alive": "times_alive", "times_dead": "times_dead", "average_timeout": "average_timeout", "city": "ip_data.city", "isp": "ip_data.isp" },
+      "includes": ["country", "anonymity", "https", "protocols"]
+    },
+
+    // ---- text: bare ip:port, protocol implied by file -----------------------
+
+    { "name": "speedx-http",   "url": "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "speedx-socks4", "url": "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "speedx-socks5", "url": "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "roosterkid-https",  "url": "https://raw.githubusercontent.com/roosterkid/openproxylist/refs/heads/main/HTTPS_RAW.txt",  "format": "text", "protocol": "https",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "roosterkid-socks4", "url": "https://raw.githubusercontent.com/roosterkid/openproxylist/refs/heads/main/SOCKS4_RAW.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "roosterkid-socks5", "url": "https://raw.githubusercontent.com/roosterkid/openproxylist/refs/heads/main/SOCKS5_RAW.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "anonymouse-http",   "url": "https://raw.githubusercontent.com/Anonym0usWork1221/Free-Proxies/refs/heads/main/proxy_files/http_proxies.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "anonymouse-https",  "url": "https://raw.githubusercontent.com/Anonym0usWork1221/Free-Proxies/refs/heads/main/proxy_files/https_proxies.txt",  "format": "text", "protocol": "https",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "anonymouse-socks4", "url": "https://raw.githubusercontent.com/Anonym0usWork1221/Free-Proxies/refs/heads/main/proxy_files/socks4_proxies.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "anonymouse-socks5", "url": "https://raw.githubusercontent.com/Anonym0usWork1221/Free-Proxies/refs/heads/main/proxy_files/socks5_proxies.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "proxyscraper-http",   "url": "https://raw.githubusercontent.com/ProxyScraper/ProxyScraper/refs/heads/main/http.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "proxyscraper-socks4", "url": "https://raw.githubusercontent.com/ProxyScraper/ProxyScraper/refs/heads/main/socks4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "proxyscraper-socks5", "url": "https://raw.githubusercontent.com/ProxyScraper/ProxyScraper/refs/heads/main/socks5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "argh94-http",   "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTP.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    // argh94-https dropped: telegram mtproto proxies, not http proxies
+    { "name": "argh94-socks4", "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/SOCKS4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "argh94-socks5", "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/SOCKS5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "hideip-http",   "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/http.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$" }, "includes": ["country"] },
+    { "name": "hideip-https",  "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/https.txt",  "format": "text", "protocol": "https",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$" }, "includes": ["country"] },
+    { "name": "hideip-socks4", "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/socks4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$" }, "includes": ["country"] },
+    { "name": "hideip-socks5", "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/socks5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$" }, "includes": ["country"] },
+
+    { "name": "hookzof-socks5", "url": "https://raw.githubusercontent.com/hookzof/socks5_list/refs/heads/master/proxy.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "ercin-http",   "url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/http.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "ercin-https",  "url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",  "format": "text", "protocol": "https",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "ercin-socks4", "url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "ercin-socks5", "url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    { "name": "iplocate-http",   "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main/protocols/http.txt",   "format": "text", "protocol": "http",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    // iplocate-https dropped: endpoint 404s
+    { "name": "iplocate-socks4", "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main/protocols/socks4.txt", "format": "text", "protocol": "socks4",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+    { "name": "iplocate-socks5", "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main/protocols/socks5.txt", "format": "text", "protocol": "socks5",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": [] },
+
+    // ---- text: mixed protocols inline ---------------------------------------
+
+    { "name": "iplocate-all", "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main/all-proxies.txt", "format": "text",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": ["protocols"] },
+
+    { "name": "elliottophellia-pmix", "url": "https://raw.githubusercontent.com/elliottophellia/proxylist/refs/heads/master/results/pmix_checked.txt", "format": "text",
+      "extract": { "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$" }, "includes": ["protocols"] },
+
+    // ---- html tables ---------------------------------------------------------
+
+    {
+      "name": "freeproxylist-net",
+      "url": "https://free-proxy-list.net/en/",
+      "format": "html",
+      "extract": {
+        "row_selector": ".fpl-list table tbody tr",
+        "ip": "td:nth-child(1)",
+        "port": "td:nth-child(2)",
+        "country": "td:nth-child(3)",
+        "anonymity": "td:nth-child(5)",
+        "https": "td:nth-child(7)"
+      },
+      "includes": ["country", "anonymity", "https"]
+    },
+
+    {
+      "name": "proxydb",
+      "url": "https://proxydb.net/?offset={offset}",
+      "format": "html",
+      "pagination": { "type": "offset", "start": 0, "step": 30, "stop": "empty", "max_pages": 100 },
+      "extract": {
+        "row_selector": "table.table tbody tr",
+        "ip": "td:nth-child(1)",
+        "port": "td:nth-child(2)",
+        "protocol": "td:nth-child(3)",
+        "country": "td:nth-child(4) abbr",
+        "anonymity": "td:nth-child(5)"
+      },
+      "includes": ["country", "anonymity", "protocols"]
+    },
+
+    {
+      "name": "advanced-name",
+      "url": "https://advanced.name/freeproxy?page={page}",
+      "format": "html",
+      "headers": { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" },
+      "pagination": { "type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 50 },
+      "extract": {
+        "row_selector": "table tbody tr",
+        "ip": "td:nth-child(1)",
+        "port": "td:nth-child(2)",
+        "protocol": "td:nth-child(3)",
+        "country": "td:nth-child(4)",
+        "anonymity": "td:nth-child(5)"
+      },
+      "includes": []
+    }
+
+  ]
+}
