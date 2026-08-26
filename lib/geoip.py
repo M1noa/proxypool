@@ -1,21 +1,12 @@
 """db-ip lite country + asn mmdb, downloaded fresh each run"""
 import datetime as dt
+import json
 from pathlib import Path
 
 BASE = "https://download.db-ip.com/free/dbip-country-lite-{ym}.mmdb.gz"
 ASN_BASE = "https://download.db-ip.com/free/dbip-asn-lite-{ym}.mmdb.gz"
-
-# asn org names that indicate hosting/datacenter/cloud infrastructure
-HOSTING_KEYWORDS = (
-    "amazon", "aws", "azure", "microsoft", "google", "oracle",
-    "alibaba", "tencent cloud", "ovh", "hetzner", "digitalocean",
-    "linode", "akamai", "cloudflare", "fastly", "vultr", "choopa",
-    "leaseweb", "contabo", "m247", "datacamp", "hostinger", "godaddy",
-    "scaleway", "online s.a.s", "iliad", "hivelocity", "phoenixnap",
-    "quadranet", "psychz", "rackspace", "equinix", "melbikomas",
-    "aeza", "flokinet", "stark industries", "gthost", "colocation",
-    "datacenter", "data center", "hosting", "server", "vps", "dedicated",
-)
+# cc0, updated daily: asn -> category (isp/hosting/business/education_research/government_admin)
+ASN_META_URL = "https://raw.githubusercontent.com/ipverse/as-metadata/master/as.json"
 
 
 def _download(base, dest_name, cache_dir):
@@ -52,6 +43,25 @@ def download_asn_mmdb(cache_dir):
     return _download(ASN_BASE, "dbip-asn-lite.mmdb", cache_dir)
 
 
+def download_asn_categories(cache_dir):
+    """asn -> category dict from ipverse as-metadata (cc0)"""
+    dest = Path(cache_dir) / "ipverse-as-categories.json"
+    if not dest.exists():
+        import requests
+
+        r = requests.get(ASN_META_URL, timeout=300,
+                         headers={"user-agent": "proxypool/1.0"})
+        r.raise_for_status()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(r.content)
+    categories = {}
+    for entry in json.loads(dest.read_text()):
+        cat = (entry.get("metadata") or {}).get("category")
+        if cat:
+            categories[entry["asn"]] = cat
+    return categories
+
+
 class GeoIP:
     def __init__(self, path):
         import maxminddb
@@ -71,12 +81,13 @@ class GeoIP:
 
 
 class AsnDB:
-    """db-ip asn lite: asn number + org name per ip, plus hosting/residential guess"""
+    """db-ip asn lite: asn number + org name per ip, typed via ipverse category"""
 
-    def __init__(self, path):
+    def __init__(self, path, categories=None):
         import maxminddb
 
         self.reader = maxminddb.open_database(str(path))
+        self.categories = categories or {}
 
     def lookup(self, ip):
         try:
@@ -91,6 +102,6 @@ class AsnDB:
             o = data.get("autonomous_system_organization")
             if isinstance(o, str):
                 org = o
-        low = org.lower()
-        ip_type = "hosting" if any(k in low for k in HOSTING_KEYWORDS) else "residential"
-        return {"asn": num, "as_org": org, "ip_type": ip_type}
+        ip_type = "hosting" if self.categories.get(num) == "hosting" else "residential"
+        return {"asn": num, "as_org": org, "ip_type": ip_type,
+                "asn_category": self.categories.get(num) or ""}
