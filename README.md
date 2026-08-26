@@ -1,6 +1,6 @@
 # proxypool
 
-![proxies](https://img.shields.io/badge/total%20proxies-70512-blue) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
+![proxies](https://img.shields.io/badge/total%20proxies-2630-blue) ![avg response](https://img.shields.io/badge/avg%20response-3848ms-orange) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
 
 hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
 
@@ -9,4 +9,4 @@ hourly refreshed proxy lists. fetched from public sources, merged, checked live,
 | [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) / [all.txt](output/all.txt) | `ip:port` per line, sorted by response time |
 | [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
 
-sources configurable in [`sources.jsonc`](sources.jsonc). country data from [db-ip lite](https://db-ip.com).
+sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) is guessed from the asn org name.
