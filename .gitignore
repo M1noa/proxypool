@@ -3,3 +3,5 @@ output/
 __pycache__/
 *.pyc
 AGENT.md
+AGENT.md
+ENDPOINTS.md
