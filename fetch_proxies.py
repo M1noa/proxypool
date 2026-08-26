@@ -241,7 +241,6 @@ def main():
             r["asn"] = info["asn"]
             r["as_org"] = info["as_org"]
             r["ip_type"] = info["ip_type"]
-            r["source_meta"]["asn_category"] = info["asn_category"]
         print("asn/ip_type filled")
 
         print(f"checking {len(records)} proxies "
