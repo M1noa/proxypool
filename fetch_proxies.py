@@ -146,6 +146,25 @@ def write_outputs(records):
         t = re.sub(r"avg%20response-[\d.]+ms", f"avg%20response-{avg}ms", t)
         esc = today.replace("-", "--")
         t = re.sub(r"(last%20check-)[\d-]+?(?=-green)", rf"\g<1>{esc}", t)
+
+        # refresh readme tables between markers
+        from collections import Counter
+        types = Counter((r.get("ip_type") or "unknown") for r in records)
+        type_rows = "\n".join(
+            f"| {k} | {v} |" for k, v in types.most_common())
+        countries = Counter(r.get("country") or "??" for r in records)
+        top = countries.most_common(4)
+        other = sum(v for _, v in list(countries.items())[4:])
+        crows = [f"| {c} | {n} |" for c, n in top]
+        if other:
+            crows.append(f"| other | {other} |")
+        country_rows = "\n".join(crows)
+        t = re.sub(r"(<!-- types:start -->\n).*?(\n<!-- types:end -->)",
+                   rf"\g<1>| type | proxies |\n|---|---|\n{type_rows}\g<2>", t,
+                   flags=re.S)
+        t = re.sub(r"(<!-- countries:start -->\n).*?(\n<!-- countries:end -->)",
+                   rf"\g<1>| country | proxies |\n|---|---|\n{country_rows}\g<2>",
+                   t, flags=re.S)
         readme.write_text(t)
 
     return {k: len(v) for k, v in buckets.items()}
