@@ -1,6 +1,6 @@
 # proxypool
 
-![proxies](https://img.shields.io/badge/total%20proxies-2208-blue) ![avg response](https://img.shields.io/badge/avg%20response-3989ms-orange) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
+![proxies](https://img.shields.io/badge/total%20proxies-2480-blue) ![avg response](https://img.shields.io/badge/avg%20response-3904ms-orange) ![last check](https://img.shields.io/badge/last%20check-2026--08--26-green)
 
 ---
 
@@ -18,20 +18,20 @@ sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data fro
 <!-- types:start -->
 | type | proxies |
 |---|---|
-| isp | 1016 |
-| hosting | 719 |
-| business | 447 |
-| unknown | 15 |
-| education_research | 9 |
+| isp | 1022 |
+| hosting | 860 |
+| business | 574 |
+| unknown | 14 |
+| education_research | 8 |
 | government_admin | 2 |
 <!-- types:end -->
 
 <!-- countries:start -->
 | country | proxies |
 |---|---|
-| ID | 468 |
-| CN | 236 |
-| US | 118 |
-| PH | 112 |
-| other | 1985 |
+| ID | 465 |
+| CN | 334 |
+| US | 139 |
+| IN | 109 |
+| other | 2287 |
 <!-- countries:end -->
