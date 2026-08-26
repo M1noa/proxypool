@@ -13,8 +13,8 @@
 ## Phase 2 — Merge + write (no checking)
 - [x] `lib/parse.py` — parse dispatcher (JSON/text/HTML) from sources.jsonc
 - [x] `lib/util.py` — jsonc loader, normalize, dig, protocol/anon normalization
-- [ ] `fetch_proxies.py` — load sources, fetch, parse, merge/dedup, write `output/proxies.json` + `output/{http,https,socks4,socks5}.txt`
-- [ ] Local run, verify output
+- [x] `fetch_proxies.py` — load sources, fetch, parse, merge/dedup, write `output/proxies.json` + `output/{http,https,socks4,socks5}.txt`
+- [x] Local run, verify output (142139 raw -> 70156 unique; http=62674 https=7808 socks4=20137 socks5=21206)
 
 ## Phase 3 — Checker
 - [ ] `lib/check.py` — async checker (protocols, anonymity, https, RT) with aiohttp
