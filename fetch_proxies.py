@@ -106,9 +106,12 @@ def sort_records(records):
 
 def write_outputs(records):
     OUT.mkdir(exist_ok=True)
-    records = sort_records(records)
     for r in records:
         r.pop("_provided", None)
+        r.setdefault("asn", None)
+        r.setdefault("as_org", "")
+        r.setdefault("ip_type", "")
+    records = sort_records(records)
     (OUT / "proxies.json").write_text(json.dumps(records, indent=2))
 
     buckets = {
@@ -135,9 +138,12 @@ def write_outputs(records):
     if readme.exists():
         import re
         total = len(records)
+        rts = [r["response_time_ms"] for r in records if r.get("response_time_ms")]
+        avg = round(sum(rts) / len(rts)) if rts else 0
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         t = readme.read_text()
         t = re.sub(r"total%20proxies-\d+", f"total%20proxies-{total}", t)
+        t = re.sub(r"avg%20response-[\d.]+ms", f"avg%20response-{avg}ms", t)
         esc = today.replace("-", "--")
         t = re.sub(r"(last%20check-)[\d-]+?(?=-green)", rf"\g<1>{esc}", t)
         readme.write_text(t)
@@ -204,6 +210,17 @@ def main():
                     r["country"] = c
                     filled += 1
         print(f"geoip filled country for {filled} records")
+
+        # asn + hosting/residential classification for every record
+        from lib.geoip import AsnDB, download_asn_mmdb
+
+        asn_db = AsnDB(download_asn_mmdb(ROOT / ".cache"))
+        for r in records:
+            info = asn_db.lookup(r["ip"])
+            r["asn"] = info["asn"]
+            r["as_org"] = info["as_org"]
+            r["ip_type"] = info["ip_type"]
+        print("asn/ip_type filled")
 
         print(f"checking {len(records)} proxies "
               f"(baseline calibrated, concurrency=512)...")
