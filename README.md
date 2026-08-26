@@ -6,10 +6,7 @@ hourly refreshed proxy lists. fetched from public sources, merged, checked live,
 
 | file | what |
 |---|---|
-| [all.txt](output/all.txt) | every alive proxy as `protocol://ip:port` |
-| [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) | `ip:port` per line, sorted by response time |
+| [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) / [all.txt](output/all.txt) | `ip:port` per line, sorted by response time |
 | [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
 
-sources live in [`sources.jsonc`](sources.jsonc) — adding one is config, not code.
-
-country data from [db-ip lite](https://db-ip.com).
+sources configurable in [`sources.jsonc`](sources.jsonc). country data from [db-ip lite](https://db-ip.com).
