@@ -24,10 +24,10 @@
 - [x] Local run, verify output (70137 checked -> 2265 alive; http=1952 https=787 socks4=1068 socks5=976)
 
 ## Phase 4 — Workflow + docs (gated on user approval)
-- [ ] `.github/workflows/fetch.yml` — hourly cron, ubuntu-latest, python 3.11, pip install, run, commit+push as `github-actions[bot]`
+- [x] `.github/workflows/fetch.yml` — hourly cron, ubuntu-latest, python 3.11, pip install, run, commit+push as `github-actions[bot]`
 - [x] `requirements.txt`
-- [ ] `README.md` — what it does, how to use, DB-IP Lite attribution, schedule
-- [ ] `AGENT.md` — short, for AI agents
+- [x] `README.md` — what it does, how to use, DB-IP Lite attribution, schedule
+- [x] `AGENT.md` — short, for AI agents
 - [ ] Push to GitHub, verify first workflow run
 
 ## Done
