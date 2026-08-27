@@ -104,7 +104,7 @@ def sort_records(records):
     ))
 
 
-def write_outputs(records):
+def write_outputs(records, fetched_per_source=None, source_names=None):
     OUT.mkdir(exist_ok=True)
     for r in records:
         r.pop("_provided", None)
@@ -163,8 +163,26 @@ def write_outputs(records):
                    rf"\g<1>| type | proxies |\n|---|---|\n{type_rows}\g<2>", t,
                    flags=re.S)
         t = re.sub(r"(<!-- countries:start -->\n).*?(\n<!-- countries:end -->)",
-                   rf"\g<1>| country | proxies |\n|---|---|\n{country_rows}\g<2>",
-                   t, flags=re.S)
+                   rf"\g<1>| country | proxies |\n|---|---|\n{country_rows}\g<2>", t, flags=re.S)
+
+        # per-source success rate table
+        if fetched_per_source is not None:
+            alive_per_source = Counter()
+            for r in records:
+                for s in r.get("sources", []):
+                    alive_per_source[s] += 1
+            names = source_names or sorted(fetched_per_source)
+            srows = []
+            for s in names:
+                fetched = fetched_per_source.get(s, 0)
+                alive = alive_per_source.get(s, 0)
+                pct = round(100 * alive / fetched) if fetched else 0
+                srows.append(f"| {s} | {fetched} | {alive} | {pct}% |")
+            source_rows = "\n".join(srows)
+            t = re.sub(r"<!-- sources:start -->.*?<!-- sources:end -->",
+                       f"<!-- sources:start -->\n| source | fetched | alive | success |\n|---|---|---|---|\n{source_rows}\n<!-- sources:end -->",
+                       t, flags=re.S)
+
         readme.write_text(t)
 
     return {k: len(v) for k, v in buckets.items()}
@@ -199,6 +217,14 @@ def main():
     print(f"\nfetched {len(all_records)} raw records from {len(sources)} sources")
     records = finalize(merge(all_records))
     print(f"unique proxies: {len(records)}")
+
+    # per-source fetched counts (before dead proxies are dropped) for success rate
+    from collections import Counter
+    fetched_per_source = Counter()
+    for r in records:
+        for s in r.get("sources", []):
+            fetched_per_source[s] += 1
+    source_names = [s["name"] for s in sources]
 
     # carry over last run's alive proxies so they get re-checked too
     prev_path = OUT / "proxies.json"
@@ -249,7 +275,7 @@ def main():
         print(f"alive={stats['alive']} dead={stats['dead']} "
               f"baseline={stats['baseline_ms']}ms")
 
-    counts = write_outputs(records)
+    counts = write_outputs(records, fetched_per_source, source_names)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
           f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
     if errors:
