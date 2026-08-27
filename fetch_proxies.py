@@ -104,13 +104,15 @@ def sort_records(records):
     ))
 
 
-def write_outputs(records, fetched_per_source=None, source_names=None):
+def write_outputs(records, fetched_per_source=None, source_names=None, overall_success=None):
     OUT.mkdir(exist_ok=True)
     for r in records:
         r.pop("_provided", None)
+        r.pop("_carried", None)
         r.setdefault("asn", None)
         r.setdefault("as_org", "")
         r.setdefault("ip_type", "")
+        r.setdefault("ip_version", "")
     records = sort_records(records)
     (OUT / "proxies.json").write_text(json.dumps(records, indent=2))
 
@@ -183,6 +185,40 @@ def write_outputs(records, fetched_per_source=None, source_names=None):
                        f"<!-- sources:start -->\n| source | fetched | alive | success |\n|---|---|---|---|\n{source_rows}\n<!-- sources:end -->",
                        t, flags=re.S)
 
+        # anonymity share
+        anon = Counter((r.get("anonymity") or "unknown") for r in records)
+        anon_rows = "\n".join(
+            f"| {k} | {v} |" for k, v in anon.most_common())
+        t = re.sub(r"<!-- anon:start -->.*?<!-- anon:end -->",
+                   f"<!-- anon:start -->\n| anonymity | proxies |\n|---|---|\n{anon_rows}\n<!-- anon:end -->",
+                   t, flags=re.S)
+
+        # protocol (type) share
+        proto = Counter()
+        for r in records:
+            for p in r.get("protocols", []):
+                proto[p] += 1
+        proto_rows = "\n".join(
+            f"| {k} | {v} |" for k, v in proto.most_common())
+        t = re.sub(r"<!-- proto:start -->.*?<!-- proto:end -->",
+                   f"<!-- proto:start -->\n| type | proxies |\n|---|---|\n{proto_rows}\n<!-- proto:end -->",
+                   t, flags=re.S)
+
+        # top 5 ports
+        ports = Counter(r["port"] for r in records).most_common(5)
+        port_rows = "\n".join(
+            f"| {p} | {n} |" for p, n in ports)
+        t = re.sub(r"<!-- ports:start -->.*?<!-- ports:end -->",
+                   f"<!-- ports:start -->\n| port | proxies |\n|---|---|\n{port_rows}\n<!-- ports:end -->",
+                   t, flags=re.S)
+
+        # overall successrate badge (source IPs only; excludes recycled)
+        if overall_success is not None:
+            color = ("brightgreen" if overall_success >= 70
+                     else "yellow" if overall_success >= 40 else "red")
+            t = re.sub(r"success%20rate-\d+%25-[a-z]+",
+                       f"success%20rate-{overall_success}%25-{color}", t)
+
         readme.write_text(t)
 
     return {k: len(v) for k, v in buckets.items()}
@@ -237,9 +273,14 @@ def main():
             r.pop("_provided", None)
             r.setdefault("protocols", [])
             r.setdefault("source_meta", {})
+            r["_carried"] = True
             records.append(r)
             carried += 1
         print(f"carried over {carried} proxies from previous run")
+    # source IPs = proxies that appeared in at least one source this run
+    # (excludes recycled proxies carried over from a previous run)
+    source_fetched = sum(1 for r in records if not r.get("_carried"))
+    overall_success = None
 
     if not args.no_check:
         from lib.check import check_all
@@ -274,8 +315,11 @@ def main():
         records, stats = asyncio.run(check_all(records))
         print(f"alive={stats['alive']} dead={stats['dead']} "
               f"baseline={stats['baseline_ms']}ms")
+        alive_source = sum(1 for r in records if not r.get("_carried"))
+        overall_success = (round(100 * alive_source / source_fetched)
+                           if source_fetched else 0)
 
-    counts = write_outputs(records, fetched_per_source, source_names)
+    counts = write_outputs(records, fetched_per_source, source_names, overall_success)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
           f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
     if errors:
