@@ -1,6 +1,6 @@
 # proxypool
 
-![proxies](https://img.shields.io/badge/total%20proxies-2151-blue) ![avg response](https://img.shields.io/badge/avg%20response-3640ms-orange) ![last run](https://img.shields.io/github/last-commit/M1noa/proxypool)
+![proxies](https://img.shields.io/badge/total%20proxies-2151-blue) ![avg response](https://img.shields.io/badge/avg%20response-3640ms-orange) ![last run](https://img.shields.io/github/last-commit/M1noa/proxypool) ![successrate](https://img.shields.io/badge/success%20rate-0%25-red)
 
 ---
 
@@ -35,6 +35,15 @@ sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data fro
 | PH | 82 |
 | other | 1903 |
 <!-- countries:end -->
+
+<!-- anon:start -->
+<!-- anon:end -->
+
+<!-- proto:start -->
+<!-- proto:end -->
+
+<!-- ports:start -->
+<!-- ports:end -->
 
 <!-- sources:start -->
 <!-- sources:end -->

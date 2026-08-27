@@ -265,6 +265,23 @@
         "country": { "selector": "td:nth-child(5)", "regex": "flag-free-([a-z]{2})\\b" }
       },
       "includes": ["country", "anonymity", "protocols"]
+    },
+
+    {
+      "name": "ditatompel",
+      "url": "https://api.ditatompel.com/v1/proxy?page={page}&limit=100",
+      "format": "json",
+      "pagination": { "type": "page", "start": 1, "step": 1, "stop": "empty", "total_path": "data.total", "limit": 100, "max_pages": 5 },
+      "extract": {
+        "root": "data.items",
+        "ip": "ip",
+        "port": "port",
+        "protocol": "type",
+        "country": "cc",
+        "anonymity": "anonymity",
+        "response_time": "latency"
+      },
+      "includes": ["country", "anonymity", "protocols"]
     }
 
   ]

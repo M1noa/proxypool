@@ -1,11 +1,38 @@
+import ipaddress
+import json as _json
+import math
 import re
 
 from .util import dig, get, normalize_anon, parse_protocol, to_bool
 
 
+def ip_version_of(ip):
+    """return 'ipv4' | 'ipv6' | 'domain' for a host string"""
+    try:
+        return "ipv6" if ipaddress.ip_address(ip).version == 6 else "ipv4"
+    except ValueError:
+        return "domain"
+
+
+def _is_bogus_ip(ip):
+    """reject loopback / private / link-local / multicast / reserved and 0/255 sentinels"""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return (a.is_loopback or a.is_private or a.is_link_local
+            or a.is_multicast or a.is_reserved or a.is_unspecified
+            or str(a) == "255.255.255.255")
+
+
 def _norm_record(raw, src, default_proto=None):
     """raw: dict of extracted field values -> normalized record"""
     ip = str(raw.get("ip") or "").strip()
+    low = ip.lower()
+    if low == "localhost" or low.endswith(".localhost"):
+        return None
+    if ip and _is_bogus_ip(ip):
+        return None
     try:
         port = int(str(raw.get("port") or "").strip())
     except (ValueError, TypeError):
@@ -15,6 +42,7 @@ def _norm_record(raw, src, default_proto=None):
 
     rec = {
         "ip": ip,
+        "ip_version": ip_version_of(ip),
         "port": port,
         "protocols": [],
         "country": "",
@@ -228,8 +256,11 @@ def fetch_source(src, timeout=30, max_pages_default=20):
     step = pag.get("step", 1)
     max_pages = pag.get("max_pages", max_pages_default)
     delay = pag.get("delay_ms", 0) / 1000.0
+    total_path = pag.get("total_path")
+    limit = pag.get("limit", 100)
 
-    for n in range(max_pages):
+    n = 0
+    while n < max_pages:
         url = src["url"].replace("{page}", str(page)).replace("{offset}", str(page))
         content = None
         for attempt in range(3):
@@ -252,6 +283,15 @@ def fetch_source(src, timeout=30, max_pages_default=20):
                     break
         if content is None:
             break
+        # recompute total pages from server-reported total on the first page
+        if n == 0 and total_path:
+            try:
+                doc = _json.loads(content)
+                total = dig(doc, total_path)
+                if total:
+                    max_pages = max(1, math.ceil(int(total) / int(limit)))
+            except Exception:
+                pass
         try:
             batch = parse_content(src, content)
         except Exception as e:
@@ -261,5 +301,6 @@ def fetch_source(src, timeout=30, max_pages_default=20):
             break
         recs.extend(batch)
         page += step
+        n += 1
 
     return recs, errors
