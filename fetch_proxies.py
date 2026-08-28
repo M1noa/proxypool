@@ -244,6 +244,20 @@ def write_outputs(records, fetched_per_source=None, source_names=None, overall_s
             t = re.sub(r"success%20rate-\d+%25-[a-z]+",
                        f"success%20rate-{overall_success}%25-{color}", t)
 
+        # final layout: sources table on top, the rest side-by-side in a flex row
+        def _block(name):
+            m = re.search(rf"<!-- {name}:start -->.*?<!-- {name}:end -->", t, re.S)
+            return m.group(0) if m else ""
+        _order = ["sources", "types", "countries", "anon", "proto", "ports"]
+        _parts = {n: _block(n) for n in _order}
+        _flex = ('<div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">\n\n'
+                 + "\n\n".join(_parts[n] for n in ["types", "countries", "anon", "proto", "ports"])
+                 + "\n\n</div>")
+        _starts = [t.find(f"<!-- {n}:start -->") for n in _order if t.find(f"<!-- {n}:start -->") != -1]
+        _ends = [t.find(f"<!-- {n}:end -->") + len(f"<!-- {n}:end -->") for n in _order if t.find(f"<!-- {n}:start -->") != -1]
+        if _starts and _ends:
+            t = t[:min(_starts)] + _parts["sources"] + "\n\n" + _flex + t[max(_ends):]
+
         readme.write_text(t)
 
     return {k: len(v) for k, v in buckets.items()}
