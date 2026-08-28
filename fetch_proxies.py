@@ -104,6 +104,17 @@ def sort_records(records):
     ))
 
 
+def _html_table(headers, rows):
+    cell = 'style="border:1px solid #30363d; padding:3px 8px; text-align:left"'
+    th = "".join(f"<th {cell}><b>{h}</b></th>" for h in headers)
+    body = "".join(
+        "<tr>" + "".join(f"<td {cell}>{c}</td>" for c in row) + "</tr>"
+        for row in rows
+    )
+    return (f'<table style="border-collapse:collapse; font-size:13px">'
+            f'<thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>')
+
+
 def write_outputs(records, fetched_per_source=None, source_names=None, overall_success=None):
     OUT.mkdir(exist_ok=True)
     for r in records:
@@ -148,49 +159,65 @@ def write_outputs(records, fetched_per_source=None, source_names=None, overall_s
         t = re.sub(r"avg%20response-[\d.]+ms", f"avg%20response-{avg}ms", t)
         esc = today.replace("-", "--")
         t = re.sub(r"(last%20check-)[\d-]+?(?=-green)", rf"\g<1>{esc}", t)
-
-        # refresh readme tables between markers
+        # refresh readme tables between markers (HTML; laid out side-by-side
+        # via the flex div wrapping the markers in README.md)
         from collections import Counter
+
         types = Counter((r.get("ip_type") or "unknown") for r in records)
-        type_rows = "\n".join(
-            f"| {k} | {v} |" for k, v in types.most_common())
+        type_rows = [[k, v] for k, v in types.most_common()]
+        t = re.sub(r"(<!-- types:start -->\n).*?(\n<!-- types:end -->)",
+                   rf"\g<1>{_html_table(['type', 'proxies'], type_rows)}\g<2>", t,
+                   flags=re.S)
+
         countries = Counter(r.get("country") or "??" for r in records)
         top = countries.most_common(4)
+        crows = [[c, n] for c, n in top]
         other = sum(v for _, v in list(countries.items())[4:])
-        crows = [f"| {c} | {n} |" for c, n in top]
         if other:
-            crows.append(f"| other | {other} |")
-        country_rows = "\n".join(crows)
-        t = re.sub(r"(<!-- types:start -->\n).*?(\n<!-- types:end -->)",
-                   rf"\g<1>| type | proxies |\n|---|---|\n{type_rows}\g<2>", t,
-                   flags=re.S)
+            crows.append(["other", other])
         t = re.sub(r"(<!-- countries:start -->\n).*?(\n<!-- countries:end -->)",
-                   rf"\g<1>| country | proxies |\n|---|---|\n{country_rows}\g<2>", t, flags=re.S)
+                   rf"\g<1>{_html_table(['country', 'proxies'], crows)}\g<2>", t,
+                   flags=re.S)
 
-        # per-source success rate table
+        # per-source table: sorted by success %, with avg rt / top country / top port
         if fetched_per_source is not None:
-            alive_per_source = Counter()
+            agg = {}
             for r in records:
                 for s in r.get("sources", []):
-                    alive_per_source[s] += 1
+                    a = agg.setdefault(
+                        s, {"alive": 0, "rts": [], "countries": Counter(), "ports": Counter()})
+                    a["alive"] += 1
+                    rt = r.get("response_time_ms")
+                    if rt:
+                        a["rts"].append(rt)
+                    if r.get("country"):
+                        a["countries"][r["country"]] += 1
+                    a["ports"][r["port"]] += 1
             names = source_names or sorted(fetched_per_source)
-            srows = []
+            rows = []
             for s in names:
                 fetched = fetched_per_source.get(s, 0)
-                alive = alive_per_source.get(s, 0)
+                a = agg.get(s, {"alive": 0, "rts": [], "countries": Counter(), "ports": Counter()})
+                alive = a["alive"]
                 pct = round(100 * alive / fetched) if fetched else 0
-                srows.append(f"| {s} | {fetched} | {alive} | {pct}% |")
-            source_rows = "\n".join(srows)
+                avg_rt = round(sum(a["rts"]) / len(a["rts"])) if a["rts"] else 0
+                top_country = a["countries"].most_common(1)[0][0] if a["countries"] else "?"
+                top_port = a["ports"].most_common(1)[0][0] if a["ports"] else "?"
+                rows.append((pct, alive, s, fetched, f"{avg_rt}ms", top_country, str(top_port)))
+            rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            srows = [[x[2], x[3], x[1], f"{x[0]}%", x[4], x[5], x[6]] for x in rows]
+            source_table = _html_table(
+                ["source", "fetched", "alive", "success", "avg rt", "top country", "top port"],
+                srows)
             t = re.sub(r"<!-- sources:start -->.*?<!-- sources:end -->",
-                       f"<!-- sources:start -->\n| source | fetched | alive | success |\n|---|---|---|---|\n{source_rows}\n<!-- sources:end -->",
+                       f"<!-- sources:start -->\n{source_table}\n<!-- sources:end -->",
                        t, flags=re.S)
 
         # anonymity share
         anon = Counter((r.get("anonymity") or "unknown") for r in records)
-        anon_rows = "\n".join(
-            f"| {k} | {v} |" for k, v in anon.most_common())
+        anon_rows = [[k, v] for k, v in anon.most_common()]
         t = re.sub(r"<!-- anon:start -->.*?<!-- anon:end -->",
-                   f"<!-- anon:start -->\n| anonymity | proxies |\n|---|---|\n{anon_rows}\n<!-- anon:end -->",
+                   f"<!-- anon:start -->\n{_html_table(['anonymity', 'proxies'], anon_rows)}\n<!-- anon:end -->",
                    t, flags=re.S)
 
         # protocol (type) share
@@ -198,18 +225,16 @@ def write_outputs(records, fetched_per_source=None, source_names=None, overall_s
         for r in records:
             for p in r.get("protocols", []):
                 proto[p] += 1
-        proto_rows = "\n".join(
-            f"| {k} | {v} |" for k, v in proto.most_common())
+        proto_rows = [[k, v] for k, v in proto.most_common()]
         t = re.sub(r"<!-- proto:start -->.*?<!-- proto:end -->",
-                   f"<!-- proto:start -->\n| type | proxies |\n|---|---|\n{proto_rows}\n<!-- proto:end -->",
+                   f"<!-- proto:start -->\n{_html_table(['type', 'proxies'], proto_rows)}\n<!-- proto:end -->",
                    t, flags=re.S)
 
         # top 5 ports
         ports = Counter(r["port"] for r in records).most_common(5)
-        port_rows = "\n".join(
-            f"| {p} | {n} |" for p, n in ports)
+        port_rows = [[p, n] for p, n in ports]
         t = re.sub(r"<!-- ports:start -->.*?<!-- ports:end -->",
-                   f"<!-- ports:start -->\n| port | proxies |\n|---|---|\n{port_rows}\n<!-- ports:end -->",
+                   f"<!-- ports:start -->\n{_html_table(['port', 'proxies'], port_rows)}\n<!-- ports:end -->",
                    t, flags=re.S)
 
         # overall successrate badge (source IPs only; excludes recycled)
