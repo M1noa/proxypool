@@ -106,19 +106,27 @@ def _proxyhub(src):
 # ---- proxynova: homepage table ---------------------------------------------
 
 def _proxynova(src):
+    if quickjs is None:
+        return [], ["proxynova: quickjs not installed"]
     errs, raws = [], []
     try:
         html = _get(src, "https://www.proxynova.com/proxy-server-list/")
+        ctx = quickjs.Context()
         for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
             tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
             if len(tds) < 7:
                 continue
-            td0 = re.sub(r"<script.*?</script>", "", tds[0], flags=re.S)
-            ipm = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", td0)
+            m = re.search(r'document\.write\((.+?)\)</script>', tds[0], re.S)
             port = _clean(tds[1])
             anon = _clean(tds[6]).lower()
-            if ipm and port and re.match(r"^\d{1,5}$", port):
-                raws.append({"ip": f"{ipm.group(1)}:{port}", "protocol": "http", "anonymity": anon})
+            if not m or not re.match(r"^\d{1,5}$", port):
+                continue
+            try:
+                ip = str(ctx.eval(m.group(1).strip()))
+            except Exception:
+                continue
+            if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", ip):
+                raws.append({"ip": f"{ip}:{port}", "protocol": "http", "anonymity": anon})
     except Exception as e:
         errs.append(f"proxynova: {e}")
     return _records(src, raws)[0], errs
