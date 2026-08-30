@@ -494,12 +494,15 @@ def main():
                   f"(re-checked in ~{24}h)")
         print(f"checking {len(records)} proxies...")
         t0 = time.monotonic()
+        prev_alive = {k for k, v in state.items() if v.get("last_ok_ts")}
         records, check_stats, outcomes, _ = asyncio.run(
             check_all(records, skip=skips,
                       concurrency=args.concurrency,
-                      speedtest=not args.no_speedtest))
+                      speedtest=not args.no_speedtest,
+                      prev_alive=prev_alive))
         print(f"alive={check_stats['alive']} dead={check_stats['dead']} "
-              f"skipped={check_stats['skipped']} baseline={check_stats['baseline_ms']}ms "
+              f"skipped={check_stats['skipped']} revived={check_stats['revived']} "
+              f"baseline={check_stats['baseline_ms']}ms "
               f"in {time.monotonic() - t0:.1f}s")
 
         t0 = time.monotonic()

@@ -11,12 +11,12 @@ MYIP_URLS = ["https://api.ipify.org", "https://icanhazip.com"]
 BASELINE_PINGS = 5
 CONCURRENCY = 512  # fallback when no speedtest measurement is available
 CONCURRENCY_MIN = 128
-CONCURRENCY_MAX = 4096
+CONCURRENCY_MAX = 819
 SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10000000"
 SPEEDTEST_CONN = 4
-# all proxies ping the same endpoint (google generate_204); 4s keeps the run
-# moving — most dead proxies hang until timeout, and 74k of them add up fast
-TIMEOUT = 4
+# all proxies ping the same endpoint (google generate_204); 5s keeps the run
+# moving — most dead proxies hang until timeout, and they add up fast
+TIMEOUT = 5
 
 ANON_KEYS = ("via", "x-forwarded-for", "forwarded", "client-ip")
 
@@ -93,38 +93,28 @@ class Checker:
         self.mbps = (sum(sizes) * 8 / 1e6) / dt if dt > 0 else 0.0
         return self.mbps
 
-    async def _probe(self, ip, port, probe):
+    async def _probe(self, ip, port, probe, session):
         """returns calibrated ms or raises"""
         t0 = time.monotonic()
         if probe == "https":
             # CONNECT tunnel through the http proxy to an https target
-            async with aiohttp.ClientSession(timeout=_timeout()) as s:
-                await _fetch(s, "https://www.google.com/generate_204",
-                             proxy=f"http://{ip}:{port}")
+            await _fetch(session, "https://www.google.com/generate_204",
+                         proxy=f"http://{ip}:{port}")
         elif probe == "http":
-            async with aiohttp.ClientSession(timeout=_timeout()) as s:
-                await _fetch(s, CHECK_URL, proxy=f"http://{ip}:{port}")
+            await _fetch(session, CHECK_URL, proxy=f"http://{ip}:{port}")
         else:  # socks4 / socks5
             await _socks_fetch(ip, port, probe, CHECK_URL)
         return (time.monotonic() - t0) * 1000
 
-    def _probe_plan(self, rec):
-        """probes to run; trusted means source already verified protocols (rt only)"""
+    @staticmethod
+    def _probe_plan(rec):
+        """every claimed protocol gets probed; http+https both tested
+        (CONNECT + plain). unknown claims get the https/http discovery pair."""
         claimed = [p for p in rec["protocols"] if p]
-        provided = rec.get("_provided") or ()
-        if "protocols" in provided and claimed:
-            # measure rt through the first claimed protocol only
-            first = claimed[0]
-            return [first], True
-        probes = []
-        socks = [p for p in ("socks4", "socks5") if p in claimed]
-        if socks:
-            probes.extend(socks)
-        else:
-            # unknown or http-claimed: test CONNECT first (success => http+https)
-            probes.append("https")
-            probes.append("http")
-        return probes, False
+        probes = [p for p in ("socks4", "socks5") if p in claimed]
+        if "http" in claimed or "https" in claimed:
+            probes += ["https", "http"]
+        return probes or ["https", "http"]
 
     @staticmethod
     def _classify_anon(text, my_ip):
@@ -135,53 +125,44 @@ class Checker:
             return "anonymous"
         return "elite"
 
-    async def _echo_anonymity(self, ip, port):
+    async def _echo_anonymity(self, ip, port, session):
         for u in ECHO_URLS:
             try:
-                async with aiohttp.ClientSession(timeout=_timeout()) as s:
-                    raw = await _fetch(s, u, proxy=f"http://{ip}:{port}")
+                raw = await _fetch(session, u, proxy=f"http://{ip}:{port}")
                 return self._classify_anon(raw.decode(errors="replace"), self.my_ip)
             except Exception:
                 continue
         return ""
 
-    async def _check_one(self, sem, rec):
-        async with sem:
-            probes, trusted = self._probe_plan(rec)
-            best_rt = None
-            best_raw = None
-            ok = set()
-            for p in probes:
-                try:
-                    ms = await self._probe(rec["ip"], rec["port"], p)
-                except Exception:
-                    continue
-                rt = self._calibrated(ms)
-                raw = round(ms)
-                if best_rt is None or rt < best_rt:
-                    best_rt = rt
-                    best_raw = raw
-                ok.add("https" if p == "https" else p)
-                if p == "https":
-                    ok.add("http")
-            dead = not ok
-            if trusted and not dead:
-                final = sorted(set(rec["protocols"]))  # keep full claim
-            elif dead:
-                return False
-            else:
-                final = sorted(ok)
-            if final:
-                rec["protocols"] = final
-            if best_rt is not None:
-                rec["response_time_ms"] = int(best_rt)
-                rec["response_time_raw_ms"] = int(best_raw)
-            if "https" in rec["protocols"]:
-                rec["https"] = True
-            if rec["anonymity"] == "" and "anonymity" not in (rec.get("_provided") or ()) \
-                    and "http" in rec["protocols"]:
-                rec["anonymity"] = await self._echo_anonymity(rec["ip"], rec["port"])
-            return True
+    async def _check_one(self, rec, session):
+        best_rt = None
+        best_raw = None
+        ok = set()
+        for p in self._probe_plan(rec):
+            try:
+                ms = await self._probe(rec["ip"], rec["port"], p, session)
+            except Exception:
+                continue
+            rt = self._calibrated(ms)
+            raw = round(ms)
+            if best_rt is None or rt < best_rt:
+                best_rt = rt
+                best_raw = raw
+            ok.add(p)
+            if p == "https":
+                ok.add("http")
+        if not ok:
+            return False
+        rec["protocols"] = sorted(ok)
+        if best_rt is not None:
+            rec["response_time_ms"] = int(best_rt)
+            rec["response_time_raw_ms"] = int(best_raw)
+        if "https" in rec["protocols"]:
+            rec["https"] = True
+        if rec["anonymity"] == "" and "anonymity" not in (rec.get("_provided") or ()) \
+                and "http" in rec["protocols"]:
+            rec["anonymity"] = await self._echo_anonymity(rec["ip"], rec["port"], session)
+        return True
 
 
 async def _progress_reporter(total, counters, interval=10, concurrency=0):
@@ -223,9 +204,11 @@ async def _progress_reporter(total, counters, interval=10, concurrency=0):
               flush=True)
 
 
-async def check_all(records, concurrency=0, skip=(), speedtest=True):
+async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=()):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
     skip: iterable of (ip, port) known-dead proxies to not probe.
+    prev_alive: (ip, port) pairs with a history success — failures among them
+    get one second-chance re-probe at the end.
     concurrency 0 = derive from a speedtest (mbps * 2, clamped).
     returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
     dropped from alive_records; outcomes is [(ip, port, alive, rt_ms|None)]
@@ -251,25 +234,62 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True):
     print(f"concurrency={concurrency}"
           + (f" (measured {c.mbps:.0f} mbps)" if c.mbps else " (default)"),
           flush=True)
-    sem = asyncio.Semaphore(concurrency)
 
     counters = {"checked": 0, "alive": 0, "dead": 0}
+    results = [False] * len(records)
+    connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+    session = aiohttp.ClientSession(connector=connector, timeout=_timeout())
 
-    async def run(rec):
-        try:
-            ok = await c._check_one(sem, rec)
-        except Exception:
-            ok = False
-        counters["checked"] += 1
-        counters["alive" if ok else "dead"] += 1
-        return ok
+    async def run_pool(pool_records, out, track=None):
+        """worker pool: `concurrency` workers pull indices off a shared counter"""
+        it = 0
+
+        async def worker():
+            nonlocal it
+            while True:
+                i = it
+                it += 1
+                if i >= len(pool_records):
+                    return
+                rec = pool_records[i]
+                try:
+                    ok = await c._check_one(rec, session)
+                except Exception:
+                    ok = False
+                out[i] = ok
+                if track is not None:
+                    track["checked"] += 1
+                    track["alive" if ok else "dead"] += 1
+
+        await asyncio.gather(*(worker() for _ in range(concurrency)))
 
     reporter = asyncio.ensure_future(
         _progress_reporter(len(records), counters, concurrency=concurrency))
     try:
-        results = await asyncio.gather(*[run(r) for r in records])
+        try:
+            await run_pool(records, results, counters)
+        finally:
+            reporter.cancel()
+
+        # second chance: recently-alive proxies that just failed get one re-probe
+        revived = 0
+        prev = set(prev_alive or ())
+        retry_idx = [i for i, r in enumerate(records)
+                     if not results[i] and (r["ip"], r["port"]) in prev]
+        if retry_idx:
+            print(f"second-chance: re-probing {len(retry_idx)} recently-alive "
+                  f"failures", flush=True)
+            retry = [records[i] for i in retry_idx]
+            rres = [False] * len(retry)
+            await run_pool(retry, rres)
+            for j, ok in enumerate(rres):
+                if ok:
+                    results[retry_idx[j]] = True
+                    revived += 1
+            print(f"second-chance: revived {revived}/{len(retry_idx)}", flush=True)
     finally:
-        reporter.cancel()
+        await session.close()
+
     outcomes = [
         (r["ip"], r["port"], ok, r.get("response_time_ms") if ok else None)
         for r, ok in zip(records, results)
@@ -284,6 +304,7 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True):
         "alive": len(alive),
         "dead": len(records) - len(alive),
         "skipped": skipped,
+        "revived": revived,
         "baseline_ms": round(c.baseline),
     }
     return alive, stats, outcomes, skipped
