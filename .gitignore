@@ -1,7 +1,7 @@
-output/
 .cache/
 __pycache__/
 *.pyc
 AGENT.md
 AGENT.md
 ENDPOINTS.md
+sources.jsonc.bak1
