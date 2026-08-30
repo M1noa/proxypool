@@ -4,3 +4,4 @@ pycountry
 aiohttp
 aiohttp-socks
 maxminddb
+quickjs

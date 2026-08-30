@@ -48,12 +48,16 @@ def dig(obj, path):
 def normalize_anon(v):
     """map assorted anonymity values to transparent|anonymous|elite|''"""
     s = str(v or "").strip().lower()
-    if "elite" in s or s in ("ha", "high"):
+    if "elite" in s or s in ("ha", "high", "高匿"):
         return "elite"
+    if s in ("anon", "trans"):
+        return {"anon": "anonymous", "trans": "transparent"}[s]
     if "anon" in s and "not" not in s:
         return "anonymous"
-    if "transparent" in s:
+    if "transparent" in s or s in ("low", "透明", "notanonymous"):
         return "transparent"
+    if s in ("average", "medium", "normal", "普匿"):
+        return "anonymous"
     return ""
 
 
@@ -75,12 +79,54 @@ def parse_protocol(v):
     return [p for p in parts if p in known]
 
 
-def get(url, timeout=30, headers=None):
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/126.0.0.0 Safari/537.36")
+
+
+def browser_headers():
+    """realistic browser header set for sources behind bot detection"""
+    return {
+        "user-agent": BROWSER_UA,
+        "accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+                   "image/avif,image/webp,*/*;q=0.8"),
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "pragma": "no-cache",
+        "upgrade-insecure-requests": "1",
+    }
+
+
+def make_session(src=None):
+    """requests session for a source; antibot=True upgrades to browser headers"""
     import requests
 
-    h = {"user-agent": "proxypool/1.0"}
+    src = src or {}
+    s = requests.Session()
+    s.headers["user-agent"] = "proxypool/1.0"
+    if src.get("antibot"):
+        s.headers.update(browser_headers())
+    s.headers.update(src.get("headers") or {})
+    return s
+
+
+def request(url, method="GET", body=None, body_type=None,
+            timeout=30, session=None, headers=None):
+    """single http call; body_type 'form' posts form-encoded, default json"""
+    sess = session or make_session()
+    h = dict(sess.headers)
     if headers:
         h.update(headers)
-    r = requests.get(url, timeout=timeout, headers=h)
+    if method.upper() == "POST":
+        if body_type == "form":
+            r = sess.post(url, data=body or {}, timeout=timeout, headers=h)
+        else:
+            r = sess.post(url, json=body or {}, timeout=timeout, headers=h)
+    else:
+        r = sess.get(url, timeout=timeout, headers=h)
     r.raise_for_status()
     return r.text
+
+
+def get(url, timeout=30, headers=None, session=None):
+    return request(url, timeout=timeout, headers=headers, session=session)
