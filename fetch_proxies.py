@@ -51,15 +51,19 @@ def fetch_all(sources):
     def run_pool(pool_sources, workers):
         pending = deque((s, 0, 0.0) for s in pool_sources)  # src, attempts, not_before
         inflight = {}
+
+        def job(src, st):
+            # timer starts when a worker actually picks the job up, not at submit
+            st.update(start=time.monotonic(), requests=0, page=None, url=None)
+            return fetch_source(src, None, 20, st)
+
         with ThreadPoolExecutor(max_workers=workers) as pool:
             while pending or inflight:
                 now = time.monotonic()
                 while pending and len(inflight) < workers and pending[0][2] <= now:
                     src, attempts, _ = pending.popleft()
                     st = progress.setdefault(src["name"], {})
-                    st.update(start=time.monotonic(), requests=0, page=None, url=None)
-                    fut = pool.submit(fetch_source, src, None, 20, st)
-                    inflight[fut] = (src, attempts)
+                    inflight[pool.submit(job, src, st)] = (src, attempts)
                 if not inflight:
                     time.sleep(max(0.1, pending[0][2] - time.monotonic()))
                     continue

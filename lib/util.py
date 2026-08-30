@@ -112,10 +112,11 @@ def make_session(src=None):
 
 def request(url, method="GET", body=None, body_type=None,
             timeout=12, session=None, headers=None,
-            max_attempts=6, backoff=2.0, max_wait=120):
+            max_attempts=6, backoff=2.0, max_wait=120, deadline=None):
     """single http call with retry/backoff; honors Retry-After on 429/5xx,
     retries connection errors and timeouts; gives up after max_attempts.
-    body_type 'form' posts form-encoded, default json"""
+    body_type 'form' posts form-encoded, default json.
+    deadline (monotonic ts) hard-stops retries and clamps backoff sleeps."""
     import time as _time
     import requests as _requests
 
@@ -124,8 +125,16 @@ def request(url, method="GET", body=None, body_type=None,
     if headers:
         h.update(headers)
 
+    def _sleep(seconds):
+        if deadline:
+            seconds = min(seconds, max(0.0, deadline - _time.monotonic()))
+        if seconds > 0:
+            _time.sleep(seconds)
+
     last_err = None
     for attempt in range(1, max_attempts + 1):
+        if deadline and _time.monotonic() > deadline:
+            raise TimeoutError("source budget exceeded")
         try:
             if method.upper() == "POST":
                 if body_type == "form":
@@ -140,7 +149,7 @@ def request(url, method="GET", body=None, body_type=None,
                     wait = float(ra) if ra else min(backoff ** attempt, max_wait)
                 except (TypeError, ValueError):
                     wait = min(backoff ** attempt, max_wait)
-                _time.sleep(wait)
+                _sleep(wait)
                 continue
             r.raise_for_status()
             return r.text
@@ -148,7 +157,7 @@ def request(url, method="GET", body=None, body_type=None,
                 _requests.exceptions.Timeout) as e:
             last_err = e
             if attempt < max_attempts:
-                _time.sleep(min(backoff ** attempt, max_wait))
+                _sleep(min(backoff ** attempt, max_wait))
                 continue
             raise
     if last_err:
@@ -156,5 +165,6 @@ def request(url, method="GET", body=None, body_type=None,
     return r.text
 
 
-def get(url, timeout=30, headers=None, session=None):
-    return request(url, timeout=timeout, headers=headers, session=session)
+def get(url, timeout=12, headers=None, session=None, deadline=None):
+    return request(url, timeout=timeout, headers=headers, session=session,
+                   deadline=deadline)

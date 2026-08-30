@@ -291,11 +291,11 @@ def parse_content(src, content, defaults=None):
     return recs
 
 
-def _run_prefetch(src, session):
+def _run_prefetch(src, session, deadline=None):
     """run prefetch steps; returns (url, extra_headers) for the real fetch.
 
     each step: { url?, method?, body?, body_type?, regex?, group?, json_path?,
-                 header?, as_url?, base? }
+                  header?, as_url?, base? }
     - regex/json_path extract a value from the response
     - header stores it as a request header for subsequent requests
     - as_url feeds it into the next step's url (and the real fetch when the
@@ -311,7 +311,7 @@ def _run_prefetch(src, session):
         content = request(u, method=step.get("method", "GET"),
                           body=step.get("body"),
                           body_type=step.get("body_type"),
-                          session=session, headers=headers)
+                          session=session, headers=headers, deadline=deadline)
         val = None
         if step.get("json_path"):
             val = dig(_json.loads(content), step["json_path"])
@@ -339,15 +339,16 @@ def fetch_source(src, timeout=None, max_pages_default=20, state=None):
     import time
 
     timeout = timeout or src.get("timeout", 12)
+    deadline = time.monotonic() + src.get("budget_s", 80)
     if src.get("flow"):
         from .flows import FLOWS
 
+        # flows get the budget deadline + progress state via the src copy
+        fsrc = dict(src, _deadline=deadline, _state=state)
         try:
-            return FLOWS[src["flow"]](src)
+            return FLOWS[src["flow"]](fsrc)
         except Exception as e:
             return [], [f"{src['name']}: flow '{src['flow']}' failed: {e}"]
-
-    deadline = time.monotonic() + src.get("budget_s", 80)
     recs = []
     errors = []
     pag = src.get("pagination")
@@ -362,7 +363,7 @@ def fetch_source(src, timeout=None, max_pages_default=20, state=None):
 
     if src.get("prefetch"):
         try:
-            entries[0]["url"], extra_headers = _run_prefetch(src, session)
+            entries[0]["url"], extra_headers = _run_prefetch(src, session, deadline)
         except Exception as e:
             return [], [f"{src['name']}: prefetch failed: {e}"]
 
@@ -373,7 +374,7 @@ def fetch_source(src, timeout=None, max_pages_default=20, state=None):
         return request(url, method=method,
                        body=body if page_body is None else page_body,
                        body_type=body_type, timeout=timeout, session=session,
-                       headers=extra_headers or None)
+                       headers=extra_headers or None, deadline=deadline)
 
     for entry in entries:
         url_template = entry["url"]
