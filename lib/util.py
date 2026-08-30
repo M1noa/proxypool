@@ -48,7 +48,7 @@ def dig(obj, path):
 def normalize_anon(v):
     """map assorted anonymity values to transparent|anonymous|elite|''"""
     s = str(v or "").strip().lower()
-    if "elite" in s or s in ("ha", "high", "高匿"):
+    if "elite" in s or "high" in s or s in ("ha", "高匿"):
         return "elite"
     if s in ("anon", "trans"):
         return {"anon": "anonymous", "trans": "transparent"}[s]
@@ -111,7 +111,7 @@ def make_session(src=None):
 
 
 def request(url, method="GET", body=None, body_type=None,
-            timeout=30, session=None, headers=None,
+            timeout=12, session=None, headers=None,
             max_attempts=6, backoff=2.0, max_wait=120):
     """single http call with retry/backoff; honors Retry-After on 429/5xx,
     retries connection errors and timeouts; gives up after max_attempts.
