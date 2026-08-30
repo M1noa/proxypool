@@ -371,6 +371,13 @@ def write_outputs(records, fetched_per_source=None, sources=None):
                        / len([x for x in a["rels"] if x is not None])
                        if a["rels"] and any(x is not None for x in a["rels"]) else 0.5)
                 rel_pct = _reliability_pct(rel if a["rels"] else None)
+                if s == "proxypool":
+                    # our row describes the whole pool: mean reliability over
+                    # everything alive this run, not just the re-fetched subset
+                    all_rels = [r["reliability"] for r in records
+                                if r.get("reliability") is not None]
+                    rel_pct = (_reliability_pct(sum(all_rels) / len(all_rels))
+                               if all_rels else 50)
                 speed = _speed_pct(avg_rt)
                 quality = round(0.5 * pct + 0.3 * speed + 0.2 * rel_pct)
                 top_countries = ", ".join(c for c, _ in a["countries"].most_common(2)) or "?"
