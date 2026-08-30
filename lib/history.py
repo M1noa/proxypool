@@ -1,4 +1,5 @@
 """sqlite-backed check history + reliability/quality scoring per proxy"""
+import random
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,8 +10,10 @@ RT_GOOD_MS = 500           # quality 1.0 at or below this
 RT_BAD_MS = 8000           # quality speed factor 0.0 at or above this
 NEW_PROXY_SCORE = 0.5      # neutral score for proxies with no history
 
-SKIP_FAIL_STREAK = 24      # consecutive fails before we stop probing every run
-RECHECK_EVERY_HOURS = 24   # a skipped proxy still gets re-checked this often
+SKIP_FAIL_STREAK = 24      # streak where skip probability maxes out
+RECHECK_EVERY_HOURS = 24   # hard floor: never skip if unchecked this long
+BASE_SKIP_PROB = 0.15      # skip chance after a single failed check
+MAX_SKIP_PROB = 0.9        # always leave a 10% recheck chance
 
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -144,23 +147,31 @@ def parse_ts(s):
     return datetime.strptime(s, TS_FMT).replace(tzinfo=timezone.utc)
 
 
-def skip_keys(records, state, now_ts=None):
-    """(ip, port) of proxies to skip this run: fail streak reached and recently
-    checked. skipped ones become eligible again after RECHECK_EVERY_HOURS"""
+def skip_keys(records, state, now_ts=None, rng=random):
+    """(ip, port) of proxies to skip this run, chosen probabilistically:
+    skip chance ramps from BASE_SKIP_PROB at streak 1 up to MAX_SKIP_PROB
+    at SKIP_FAIL_STREAK. proxies unchecked for RECHECK_EVERY_HOURS are
+    always re-checked so nothing starves"""
     now_ts = now_ts or datetime.now(timezone.utc).strftime(TS_FMT)
     now = parse_ts(now_ts)
     out = set()
     for r in records:
         st = state.get((r["ip"], r["port"]))
-        if not st or st["fails_streak"] < SKIP_FAIL_STREAK:
+        if not st:
+            continue
+        streak = st["fails_streak"]
+        if streak < 1:
             continue
         last = st["last_checked_ts"]
-        if not last:
-            continue
-        try:
-            hours = (now - parse_ts(last)).total_seconds() / 3600
-        except ValueError:
-            continue  # unparseable ts: check it, don't guess
-        if hours < RECHECK_EVERY_HOURS:
+        if last:
+            try:
+                hours = (now - parse_ts(last)).total_seconds() / 3600
+            except ValueError:
+                continue  # unparseable ts: check it, don't guess
+            if hours >= RECHECK_EVERY_HOURS:
+                continue  # guarantee recheck after 24h
+        p = BASE_SKIP_PROB + (MAX_SKIP_PROB - BASE_SKIP_PROB) * min(
+            1.0, (streak - 1) / (SKIP_FAIL_STREAK - 1))
+        if rng.random() < p:
             out.add((r["ip"], r["port"]))
     return out
