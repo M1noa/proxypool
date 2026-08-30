@@ -14,9 +14,9 @@ CONCURRENCY_MIN = 128
 CONCURRENCY_MAX = 4096
 SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10000000"
 SPEEDTEST_CONN = 4
-# all proxies ping the same endpoint (google generate_204); 6s keeps the run
+# all proxies ping the same endpoint (google generate_204); 4s keeps the run
 # moving — most dead proxies hang until timeout, and 74k of them add up fast
-TIMEOUT = 6
+TIMEOUT = 4
 
 ANON_KEYS = ("via", "x-forwarded-for", "forwarded", "client-ip")
 
