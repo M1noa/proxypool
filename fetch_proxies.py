@@ -6,8 +6,12 @@ outputs:
   output/{http,https,socks4,socks5}.txt   ip:port lines
 """
 import json
+import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import time
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +24,99 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "output"
 
 ANON_RANK = {"": 0, "transparent": 1, "anonymous": 2, "elite": 3}
+
+REQUEUE_COOLDOWN_S = 20
+MAX_REQUEUES = 2
+GITHUB_WORKERS = 3  # raw.githubusercontent.com rate limits
+
+
+def _is_github(src):
+    from urllib.parse import urlparse
+    return urlparse(src.get("url") or "").netloc == "raw.githubusercontent.com"
+
+
+def fetch_all(sources):
+    """fetch every source in parallel; github-raw quarantined to a small pool.
+    persistent 429 -> back of the queue with cooldown. watchdog logs sources
+    running >8s. returns (records, errors, stats{name: {fetched, requests, elapsed}})"""
+    gh = [s for s in sources if _is_github(s)]
+    rest = [s for s in sources if not _is_github(s)]
+    workers = min(len(rest) or 1, max(16, (os.cpu_count() or 4) * 4))
+    progress = {}
+    results = {}
+    errors = []
+    lock = threading.Lock()
+    stop = threading.Event()
+
+    def run_pool(pool_sources, workers):
+        pending = deque((s, 0, 0.0) for s in pool_sources)  # src, attempts, not_before
+        inflight = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            while pending or inflight:
+                now = time.monotonic()
+                while pending and len(inflight) < workers and pending[0][2] <= now:
+                    src, attempts, _ = pending.popleft()
+                    st = progress.setdefault(src["name"], {})
+                    st.update(start=time.monotonic(), requests=0, page=None, url=None)
+                    fut = pool.submit(fetch_source, src, None, 20, st)
+                    inflight[fut] = (src, attempts)
+                if not inflight:
+                    time.sleep(max(0.1, pending[0][2] - time.monotonic()))
+                    continue
+                done, _ = wait(inflight, timeout=0.5, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    src, attempts = inflight.pop(fut)
+                    st = progress[src["name"]]
+                    elapsed = time.monotonic() - st["start"]
+                    try:
+                        recs, errs = fut.result()
+                    except Exception as e:
+                        recs, errs = [], [f"{src['name']}: crashed: {e}"]
+                    if any("429" in e for e in errs) and attempts < MAX_REQUEUES:
+                        pending.append((src, attempts + 1, time.monotonic() + REQUEUE_COOLDOWN_S))
+                        print(f"{src['name']:24} 429 -> requeued ({attempts + 1}/{MAX_REQUEUES})",
+                              flush=True)
+                        continue
+                    with lock:
+                        errors.extend(errs)
+                        results[src["name"]] = {
+                            "recs": recs, "requests": st.get("requests", 0),
+                            "elapsed": elapsed, "requeues": attempts,
+                        }
+                    print(f"{src['name']:24} {len(recs):7} recs  "
+                          f"{st.get('requests', 0):4} reqs  {elapsed:5.1f}s", flush=True)
+
+    def watchdog():
+        announced = {}
+        while not stop.is_set():
+            now = time.monotonic()
+            for name, st in list(progress.items()):
+                if name in results:
+                    continue
+                elapsed = now - st.get("start", now)
+                if elapsed > 8 and now - announced.get(name, 0) >= 8:
+                    announced[name] = now
+                    print(f"[slow {elapsed:5.0f}s] {name}: reqs={st.get('requests', 0)} "
+                          f"page={st.get('page') or '-'} url={st.get('url') or '-'}",
+                          flush=True)
+            stop.wait(1.0)
+
+    wd = threading.Thread(target=watchdog, daemon=True)
+    wd.start()
+    threads = [threading.Thread(target=run_pool, args=(rest, workers)),
+               threading.Thread(target=run_pool, args=(gh, GITHUB_WORKERS))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stop.set()
+    wd.join()
+
+    records = [r for s in sources for r in results.get(s["name"], {}).get("recs", [])]
+    stats = {n: {"fetched": len(r["recs"]), "requests": r["requests"],
+                 "elapsed": r["elapsed"], "requeues": r["requeues"]}
+             for n, r in results.items()}
+    return records, errors, stats
 
 
 def country_to_iso(name):
@@ -306,26 +403,26 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-check", action="store_true",
                     help="skip proxy checking (fetch/merge only)")
+    ap.add_argument("--concurrency", type=int, default=0,
+                    help="override checker concurrency (default: derived from speedtest)")
+    ap.add_argument("--no-speedtest", action="store_true",
+                    help="skip the bandwidth measurement, use default concurrency")
     args = ap.parse_args()
 
     cfg = load_jsonc(ROOT / "sources.jsonc")
     sources = cfg["sources"]
-    all_records = []
-    errors = []
-    with ThreadPoolExecutor(max_workers=12) as pool:
-        futs = {pool.submit(fetch_source, s): s["name"] for s in sources}
-        for fut in as_completed(futs):
-            name = futs[fut]
-            try:
-                recs, errs = fut.result()
-            except Exception as e:
-                errors.append(f"{name}: crashed: {e}")
-                continue
-            errors.extend(errs)
-            all_records.extend(recs)
-            print(f"{name:24} {len(recs):6}", flush=True)
+    t_run = time.monotonic()
 
-    print(f"\nfetched {len(all_records)} raw records from {len(sources)} sources")
+    t0 = time.monotonic()
+    all_records, errors, stats = fetch_all(sources)
+    fetch_s = time.monotonic() - t0
+
+    print(f"\nfetched {len(all_records)} raw records from {len(sources)} sources "
+          f"in {fetch_s:.1f}s")
+    slowest = sorted(stats.items(), key=lambda kv: kv[1]["elapsed"], reverse=True)[:10]
+    print("slowest sources:")
+    for name, st in slowest:
+        print(f"  {name:24} {st['elapsed']:5.1f}s  {st['fetched']:7} recs  {st['requests']} reqs")
     records = finalize(merge(all_records))
     print(f"unique proxies: {len(records)}")
 
@@ -357,6 +454,7 @@ def main():
         from lib.check import check_all
         from lib.geoip import GeoIP, download_mmdb
 
+        t0 = time.monotonic()
         mmdb = download_mmdb(ROOT / ".cache")
         geo = GeoIP(mmdb)
         filled = 0
@@ -366,11 +464,12 @@ def main():
                 if c:
                     r["country"] = c
                     filled += 1
-        print(f"geoip filled country for {filled} records")
+        print(f"geoip filled country for {filled} records in {time.monotonic() - t0:.1f}s")
 
         # asn + hosting/residential classification for every record
         from lib.geoip import AsnDB, download_asn_categories, download_asn_mmdb
 
+        t0 = time.monotonic()
         categories = download_asn_categories(ROOT / ".cache")
         print(f"ipverse asn categories: {len(categories)} classified")
         asn_db = AsnDB(download_asn_mmdb(ROOT / ".cache"), categories)
@@ -379,10 +478,7 @@ def main():
             r["asn"] = info["asn"]
             r["as_org"] = info["as_org"]
             r["ip_type"] = info["ip_type"]
-        print("asn/ip_type filled")
-
-        print(f"checking {len(records)} proxies "
-              f"(baseline calibrated, concurrency=512)...")
+        print(f"asn/ip_type filled in {time.monotonic() - t0:.1f}s")
 
         from lib.history import (History, NEW_PROXY_SCORE, skip_keys)
 
@@ -392,10 +488,17 @@ def main():
         if skips:
             print(f"skipping {len(skips)} proxies that have been dead "
                   f"(re-checked in ~{24}h)")
-        records, stats, outcomes, _ = asyncio.run(check_all(records, skip=skips))
-        print(f"alive={stats['alive']} dead={stats['dead']} "
-              f"skipped={stats['skipped']} baseline={stats['baseline_ms']}ms")
+        print(f"checking {len(records)} proxies...")
+        t0 = time.monotonic()
+        records, check_stats, outcomes, _ = asyncio.run(
+            check_all(records, skip=skips,
+                      concurrency=args.concurrency,
+                      speedtest=not args.no_speedtest))
+        print(f"alive={check_stats['alive']} dead={check_stats['dead']} "
+              f"skipped={check_stats['skipped']} baseline={check_stats['baseline_ms']}ms "
+              f"in {time.monotonic() - t0:.1f}s")
 
+        t0 = time.monotonic()
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         hist.record(outcomes, ts)
         hist.update_state(outcomes, ts, state)
@@ -409,11 +512,14 @@ def main():
                 r.update(reliability=NEW_PROXY_SCORE, quality=NEW_PROXY_SCORE,
                          checks_total=0, checks_ok=0,
                          first_seen=None, last_seen=None)
-        print(f"history: {len(scores)} proxies scored")
+        print(f"history: {len(scores)} proxies scored in {time.monotonic() - t0:.1f}s")
 
+    t0 = time.monotonic()
     counts = write_outputs(records, fetched_per_source, sources)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
-          f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
+          f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']} "
+          f"(written in {time.monotonic() - t0:.1f}s)")
+    print(f"total elapsed: {time.monotonic() - t_run:.1f}s")
     if errors:
         print("\nerrors:")
         for e in errors:
