@@ -5,9 +5,11 @@ Proxy aggregator. Fetches proxies from `sources.jsonc`, checks them, writes dedu
 ## Setup
 - `python3 fetch_proxies.py` runs one fetch+check cycle.
 - Hourly cron in `.github/workflows` commits refreshed outputs + README.
+- Utility scripts live in `tools/` (`test_source.py`, `probe_endpoints.py`, `check_github_activity.py`, `check_repos.py`). History state is `output/history.db` (gitignored).
 
 ## Test one source (no check)
-- `python3 test_source.py <name> [--max-pages N] [--show N] [--list]` — fetch a single source without running the checker, print raw record count + samples.
+- `python3 tools/test_source.py <name> [--max-pages N] [--show N] [--list]` — fetch a single source without running the checker, print raw record count + samples.
+- `python3 tools/probe_endpoints.py` — fetch every source (no checker), report ok/empty/error per source.
 
 ## Adding a new source
 Before adding any source to `sources.jsonc`:
@@ -19,5 +21,5 @@ Before adding any source to `sources.jsonc`:
 4. **No bogus IPs.** Bogus addresses (loopback, private/RFC1918, link-local, multicast, reserved, 0.0.0.0/8, 255.255.255.255, `localhost`) and records missing a port are dropped automatically in `lib/parse._norm_record`. Each record gets an `ip_version` (`ipv4`/`ipv6`/`domain`).
 
 ## Gotchas
-- The successrate badge counts only source IPs (proxies seen in a source this run); recycled proxies carried from the previous run are excluded so the metric reflects live sourcing.
 - `check_all` drops dead proxies — post-check `records` contain only alive proxies.
+- The sources table's "top countries" column shows the top 2 countries (comma-separated).

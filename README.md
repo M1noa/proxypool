@@ -1,6 +1,5 @@
 # proxypool
 
-![proxies](https://img.shields.io/badge/total%20proxies-77020-blue) ![avg response](https://img.shields.io/badge/avg%20response-3278ms-orange) ![last run](https://img.shields.io/github/last-commit/M1noa/proxypool) ![successrate](https://img.shields.io/badge/success%20rate-3%25-red)
 
 ---
 

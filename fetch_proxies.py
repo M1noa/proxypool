@@ -116,7 +116,7 @@ def _html_table(headers, rows):
             f'<thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>')
 
 
-def write_outputs(records, fetched_per_source=None, sources=None, overall_success=None):
+def write_outputs(records, fetched_per_source=None, sources=None):
     OUT.mkdir(exist_ok=True)
     carried = {id(r) for r in records if r.get("_carried")}
     for r in records:
@@ -234,10 +234,10 @@ def write_outputs(records, fetched_per_source=None, sources=None, overall_succes
                 if s == "proxypool":
                     # every proxy here passed a full check this run; keep it on top
                     quality = 100
-                top_country = a["countries"].most_common(1)[0][0] if a["countries"] else "?"
+                top_countries = ", ".join(c for c, _ in a["countries"].most_common(2)) or "?"
                 top_port = a["ports"].most_common(1)[0][0] if a["ports"] else "?"
                 rows.append((quality, alive, s, fetched, pct, rel_pct, f"{avg_rt}ms",
-                             top_country, str(top_port)))
+                             top_countries, str(top_port)))
             rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
             srows = []
             for i, x in enumerate(rows):
@@ -250,7 +250,7 @@ def write_outputs(records, fetched_per_source=None, sources=None, overall_succes
                               x[3], x[1], x[7], x[8]])
             source_table = _html_table(
                 ["source", "quality", "success", "reliability", "avg rt",
-                 "fetched", "alive", "top country", "top port"],
+                 "fetched", "alive", "top countries", "top port"],
                 srows)
             t = re.sub(r"<!-- sources:start -->.*?<!-- sources:end -->",
                        f"<!-- sources:start -->\n{source_table}\n<!-- sources:end -->",
@@ -279,13 +279,6 @@ def write_outputs(records, fetched_per_source=None, sources=None, overall_succes
         t = re.sub(r"<!-- ports:start -->.*?<!-- ports:end -->",
                    f"<!-- ports:start -->\n{_html_table(['port', 'proxies'], port_rows)}\n<!-- ports:end -->",
                    t, flags=re.S)
-
-        # overall successrate badge (source IPs only; excludes recycled)
-        if overall_success is not None:
-            color = ("brightgreen" if overall_success >= 70
-                     else "yellow" if overall_success >= 40 else "red")
-            t = re.sub(r"success%20rate-\d+%25-[a-z]+",
-                       f"success%20rate-{overall_success}%25-{color}", t)
 
         # final layout: sources table on top, the rest side-by-side in a flex row
         def _block(name):
@@ -359,10 +352,6 @@ def main():
             records.append(r)
             carried += 1
         print(f"carried over {carried} proxies from previous run")
-    # source IPs = proxies that appeared in at least one source this run
-    # (excludes recycled proxies carried over from a previous run)
-    source_fetched = sum(1 for r in records if not r.get("_carried"))
-    overall_success = None
 
     if not args.no_check:
         from lib.check import check_all
@@ -397,7 +386,7 @@ def main():
 
         from lib.history import (History, NEW_PROXY_SCORE, skip_keys)
 
-        hist = History(ROOT / "history.db")
+        hist = History(OUT / "history.db")
         state = hist.state_map()
         skips = skip_keys(records, state)
         if skips:
@@ -422,11 +411,7 @@ def main():
                          first_seen=None, last_seen=None)
         print(f"history: {len(scores)} proxies scored")
 
-        alive_source = sum(1 for r in records if not r.get("_carried"))
-        overall_success = (round(100 * alive_source / source_fetched)
-                           if source_fetched else 0)
-
-    counts = write_outputs(records, fetched_per_source, sources, overall_success)
+    counts = write_outputs(records, fetched_per_source, sources)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
           f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
     if errors:
