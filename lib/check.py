@@ -160,6 +160,45 @@ class Checker:
             return True
 
 
+async def _progress_reporter(total, counters, interval=10):
+    """every `interval`s log checked/rate/alive/dead/elapsed/eta/cpu/net"""
+    import os
+    import time as _t
+
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+    t0 = _t.monotonic()
+    last_checked = 0
+    last_net = psutil.net_io_counters() if psutil else None
+    if psutil:
+        psutil.cpu_percent(None)  # prime; first call is meaningless
+    while True:
+        await asyncio.sleep(interval)
+        elapsed = _t.monotonic() - t0
+        checked = counters["checked"]
+        rate = (checked - last_checked) / interval
+        last_checked = checked
+        remaining = total - checked
+        eta_s = remaining / rate if rate > 0 else float("inf")
+        eta = f"{eta_s / 60:.1f}min" if eta_s != float("inf") else "--"
+        if psutil:
+            cpu = f"{psutil.cpu_percent(None):.0f}%"
+            io = psutil.net_io_counters()
+            d = ((io.bytes_sent + io.bytes_recv)
+                 - (last_net.bytes_sent + last_net.bytes_recv))
+            net = f" net {d / interval / 1e6:.1f}MB/s"
+            last_net = io
+        else:
+            cpu = f"load {os.getloadavg()[0]:.1f}"
+            net = ""
+        print(f"[check {elapsed:6.0f}s] {checked}/{total} "
+              f"({rate:.0f}/s) alive={counters['alive']} "
+              f"dead={counters['dead']} eta={eta} cpu={cpu}{net}",
+              flush=True)
+
+
 async def check_all(records, concurrency=CONCURRENCY, skip=()):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
     skip: iterable of (ip, port) known-dead proxies to not probe.
@@ -178,13 +217,23 @@ async def check_all(records, concurrency=CONCURRENCY, skip=()):
     await c.calibrate()
     sem = asyncio.Semaphore(concurrency)
 
+    counters = {"checked": 0, "alive": 0, "dead": 0}
+
     async def run(rec):
         try:
-            return await c._check_one(sem, rec)
+            ok = await c._check_one(sem, rec)
         except Exception:
-            return False
+            ok = False
+        counters["checked"] += 1
+        counters["alive" if ok else "dead"] += 1
+        return ok
 
-    results = await asyncio.gather(*[run(r) for r in records])
+    reporter = asyncio.ensure_future(
+        _progress_reporter(len(records), counters))
+    try:
+        results = await asyncio.gather(*[run(r) for r in records])
+    finally:
+        reporter.cancel()
     outcomes = [
         (r["ip"], r["port"], ok, r.get("response_time_ms") if ok else None)
         for r, ok in zip(records, results)
