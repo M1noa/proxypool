@@ -80,37 +80,31 @@ def _myproxy(src):
     return _records(src, raws)[0], errs
 
 
-# ---- iproyal: scrape astro js auth, then cms api ---------------------------
+# ---- iproyal: static-token cms api ---------------------------------
+TOKEN_IPROYAL = ("c07d9ce184008ff4be5ab6afa6a67a7513e5ece56e43b60ad1ddb0b86f952318e"
+                 "1ebebf54825bccb6191da8ad135cc29c963ce3f1c46dc4ad8364440333d6bee44"
+                 "ae20e3f0e63c29d3c5139c35f84b70d88b4e5de1e2f25cf07dca5d40fa5c0fa09"
+                 "3490a5919e3269f2fa853776c59642c50b0cfc761c7f3943edd1908605661")
 
 def _iproyal(src):
     errs, raws = [], []
-    try:
-        sess = make_session(src)
-        home = get("https://iproyal.com/", timeout=20, session=sess)
-        m = re.search(r'["\'](?P<path>/_astro/FreeProxyListTable\.[^"\']+\.js)["\']', home)
-        if not m:
-            return [], ["iproyal: astro js not found"]
-        js = get("https://iproyal.com" + m.group("path"), timeout=20, session=sess)
-        am = re.search(r"Authorization\s*:\s*([\"'])(.*?)\1", js)
-        if am:
-            sess.headers["Authorization"] = am.group(2)
-        sess.headers.update({"Origin": "https://iproyal.com", "Referer": "https://iproyal.com/"})
-        import json
-        for page in range(1, src.get("max_pages", 3) + 1):
-            params = (f"?fields[0]=ip&fields[1]=port&fields[2]=protocol&fields[3]=country"
-                      f"&fields[4]=city&pagination[page]={page}&pagination[pageSize]=100")
-            try:
-                txt = get(f"https://cms.iproyal.com/api/free-proxy-records{params}", timeout=20, session=sess)
-                for item in json.loads(txt).get("data") or []:
-                    if isinstance(item, dict) and item.get("ip"):
-                        raws.append({"ip": f"{item['ip']}:{item.get('port')}", "protocol": str(item.get("protocol", "")).lower(),
-                                     "country": item.get("country")})
-            except Exception as e:
-                errs.append(f"iproyal p{page}: {e}")
-    except Exception as e:
-        errs.append(f"iproyal: {e}")
+    headers = {"authorization": f"Bearer {TOKEN_IPROYAL}",
+               "origin": "https://iproyal.com", "referer": "https://iproyal.com/"}
+    import json
+    for page in range(1, src.get("max_pages", 3) + 1):
+        params = ("?fields[0]=ip&fields[1]=port&fields[2]=protocol&fields[3]=country"
+                  "&fields[4]=city&pagination[page]={page}&pagination[pageSize]=100")
+        try:
+            txt = get(f"https://cms.iproyal.com/api/free-proxy-records{params.format(page=page)}",
+                      timeout=20, headers=headers)
+            for item in json.loads(txt).get("data") or []:
+                if isinstance(item, dict) and item.get("ip"):
+                    raws.append({"ip": f"{item['ip']}:{item.get('port')}",
+                                 "protocol": str(item.get("protocol", "")).lower(),
+                                 "country": item.get("country")})
+        except Exception as e:
+            errs.append(f"iproyal p{page}: {e}")
     return _records(src, raws)[0], errs
-
 
 # ---- proxyhub: country links -> tables -------------------------------------
 
@@ -162,30 +156,33 @@ def _proxynova(src):
     return _records(src, raws)[0], errs
 
 
-# ---- proxyshare: scrape pd token from home --------------------------------
-
+# ---- proxyshare: direct no-auth api (proto: 1=Http 2=Https 4=Socks4 8=Socks5) -----
 def _proxyshare(src):
-    base = src["home"].rstrip("/")
-    errs = []
+    errs, raws = [], []
+    proto_map = {"1": "http", "2": "https", "4": "socks4", "8": "socks5"}
+    anon_map = {"2": "elite", "1": "anonymous", "0": "transparent"}
+    url = "https://www.proxyshare.com/fetch-proxy/free?page_size=15000&page=1&language=en-us"
     try:
-        home = get(base + "/", timeout=src.get("timeout", 20))
-        m = re.search(r'const\s+pd\s*=\s*`([^`]+)`', home)
-        if not m:
-            return [], ["proxyshare: pd token not found"]
-        raws = []
-        for sub in ("http", "socks4", "socks5"):
-            try:
-                txt = request(f"{base}/api/v2/{sub}?key={m.group(1)}", timeout=src.get("timeout", 20))
-                for line in txt.splitlines():
-                    line = line.strip()
-                    if re.match(r"^\d+\.\d+\.\d+\.\d+:\d+$", line):
-                        raws.append({"ip": line, "protocol": sub})
-            except Exception as e:
-                errs.append(f"proxyshare {sub}: {e}")
-        return _records(src, raws)[0], errs
+        import json
+        txt = get(url, timeout=src.get("timeout", 30))
+        data = json.loads(txt).get("data") or {}
+        for page in range(1, min(data.get("page_count", 1), src.get("max_pages", 10)) + 1):
+            if page > 1:
+                txt = get(f"https://www.proxyshare.com/fetch-proxy/free?page_size=15000&page={page}&language=en-us",
+                          timeout=src.get("timeout", 30))
+                data = json.loads(txt).get("data") or {}
+            for item in data.get("list") or []:
+                proto = proto_map.get(str(item.get("protocol")))
+                if not proto:
+                    continue
+                ip, port = item.get("ip"), item.get("port")
+                if ip and port:
+                    raws.append({"ip": f"{ip}:{port}", "protocol": proto,
+                                 "country": item.get("country_code"),
+                                 "anonymity": anon_map.get(str(item.get("anonymity")))})
     except Exception as e:
-        return [], errs + [f"proxyshare: {e}"]
-
+        errs.append(f"proxyshare: {e}")
+    return _records(src, raws)[0], errs
 
 # ---- spysone: inline js port obfuscation ----------------------------------
 
