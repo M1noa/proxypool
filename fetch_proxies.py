@@ -534,11 +534,11 @@ def main():
         state = hist.state_map()
         skips = skip_keys(records, state)
         if skips:
-            print(f"skipping {len(skips)} proxies that have been dead "
+            print(f"skipping {len(skips)} dead protocol probes "
                   f"(re-checked in ~{24}h)")
         print(f"checking {len(records)} proxies...")
         t0 = time.monotonic()
-        prev_alive = {k for k, v in state.items() if v.get("last_ok_ts")}
+        prev_alive = {k[:2] for k, v in state.items() if v.get("last_ok_ts")}
         records, check_stats, outcomes, _ = asyncio.run(
             check_all(records, skip=skips,
                       concurrency=args.concurrency,
@@ -551,19 +551,31 @@ def main():
 
         t0 = time.monotonic()
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        hist.record(outcomes, ts)
         hist.update_state(outcomes, ts, state)
         scores = hist.scores()
+        pruned = hist.prune()
         hist.close()
         for r in records:
-            s = scores.get((r["ip"], r["port"]))
-            if s:
-                r.update(s)
+            # per-proto scores, averaged over the protocols alive right now
+            parts = [scores[(r["ip"], r["port"], p)]
+                     for p in r["protocols"]
+                     if (r["ip"], r["port"], p) in scores]
+            if parts:
+                r.update(
+                    reliability=round(sum(p["reliability"] for p in parts)
+                                      / len(parts), 4),
+                    quality=round(sum(p["quality"] for p in parts)
+                                  / len(parts), 4),
+                    checks_total=sum(p["checks_total"] for p in parts),
+                    checks_ok=sum(p["checks_ok"] for p in parts),
+                    first_seen=min(p["first_seen"] for p in parts),
+                    last_seen=max(p["last_seen"] for p in parts))
             else:
                 r.update(reliability=NEW_PROXY_SCORE, quality=NEW_PROXY_SCORE,
                          checks_total=0, checks_ok=0,
                          first_seen=None, last_seen=None)
-        print(f"history: {len(scores)} proxies scored in {time.monotonic() - t0:.1f}s")
+        print(f"history: {len(scores)} proto states scored, {pruned} pruned "
+              f"in {time.monotonic() - t0:.1f}s")
 
     t0 = time.monotonic()
     counts = write_outputs(records, fetched_per_source, sources)
