@@ -33,6 +33,21 @@ def _clean(td):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", td)).strip()
 
 
+def _remain(src):
+    d = src.get("_deadline")
+    return max(0.0, d - __import__("time").monotonic()) if d else 60.0
+
+
+def _get(src, url, **kw):
+    """get with the source budget deadline + watchdog progress reporting"""
+    st = src.get("_state")
+    if st is not None:
+        st["requests"] = st.get("requests", 0) + 1
+        st["url"] = url
+    kw.setdefault("timeout", min(src.get("timeout", 20), max(1.0, _remain(src))))
+    return get(url, deadline=src.get("_deadline"), **kw)
+
+
 # ---- 66daili: cn api, proto x anonymity matrix ----------------------------
 
 def _sixsixdaili(src):
@@ -41,9 +56,11 @@ def _sixsixdaili(src):
     import json
     for proto in ("HTTP", "HTTPS", "Socks4", "Socks5"):
         for anon_enc, anon in anons.items():
+            if _remain(src) <= 0:
+                errs.append(f"{src['name']}: budget exceeded")
+                return _records(src, raws)[0], errs
             try:
-                txt = get(f"http://api.66daili.com//?num=60&anonymity={anon_enc}&protocol={proto}&format=json&page=1",
-                          timeout=src.get("timeout", 20))
+                txt = _get(src, f"http://api.66daili.com//?num=60&anonymity={anon_enc}&protocol={proto}&format=json&page=1")
                 data = json.loads(txt).get("data") or []
                 for item in data:
                     if isinstance(item, dict) and item.get("ip"):
@@ -60,11 +77,14 @@ def _proxyhub(src):
     errs, raws = [], []
     try:
         sess = make_session(src)
-        home = get("https://proxyhub.me/", timeout=20, session=sess)
+        home = _get(src, "https://proxyhub.me/", session=sess)
         links = set(re.findall(r'href="(/en/[a-z]{2}-free-proxy-list(?:\.html?)?)"', home))
         for link in links:
+            if _remain(src) <= 0:
+                errs.append("proxyhub: budget exceeded")
+                break
             try:
-                html = get("https://proxyhub.me" + link, timeout=20, session=sess)
+                html = _get(src, "https://proxyhub.me" + link, session=sess)
                 country = re.search(r"/en/([a-z]{2})-free-proxy-list", link).group(1).upper()
                 for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
                     tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
@@ -88,7 +108,7 @@ def _proxyhub(src):
 def _proxynova(src):
     errs, raws = [], []
     try:
-        html = get("https://www.proxynova.com/proxy-server-list/", timeout=src.get("timeout", 20))
+        html = _get(src, "https://www.proxynova.com/proxy-server-list/")
         for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
             tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
             if len(tds) < 7:
@@ -111,7 +131,7 @@ def _spysone(src):
         return [], ["spysone: quickjs not installed"]
     errs, raws = [], []
     try:
-        html = get(src["home"], timeout=src.get("timeout", 20))
+        html = _get(src, src["home"])
         for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
             ipm = re.search(r"(\d+\.\d+\.\d+\.\d+)", tr)
             pm = re.search(r"document\.write\(['\"]:['\"]\s*\+(.*?)\)</script>", tr)
