@@ -1,31 +1,4 @@
-// proxypool source definitions — single source of truth.
-// no per-source code exists anywhere else; everything is driven from this file.
-//
-// schema per source:
-//   name           unique id, used in output["proxies"][].sources
-//   url            fetch url; "{page}" / "{offset}" placeholders if paginated
-//   fallback_url   optional, tried if primary fetch fails
-//   method         GET (default) | POST
-//   headers        optional request headers
-//   body           optional json body (POST)
-//   format         "json" | "text" | "html"
-//   protocol       default protocol when content carries none:
-//                  "http" | "https" | "socks4" | "socks5"; omit for mixed/auto
-//   extract        format-specific:
-//     json:
-//       root          dotted path to list of items (omit = whole doc is list)
-//       ip/port/etc   dotted paths into each item object
-//       regex         applied to item when items are strings (named groups:
-//                     proto/ip/port); proto group optional
-//     text:
-//       regex         applied per line, named groups proto/ip/port
-//     html:
-//       row_selector  css selector for table/body rows
-//       <field>       css selector relative to row (e.g. "td:nth-child(1)")
-//   pagination     optional: { type: "page"|"offset", start, step,
-//                              stop: "empty", max_pages }
-//   includes       metadata this source already provides — checker skips
-//                  these fields downstream: country|anonymity|https|protocols
+// Proxy sources - auto-generated. Each source: name, display, home, url, format, protocol, extract, pagination, includes, antibot, flow
 {
   "sources": [
     {
@@ -274,7 +247,7 @@
     },
     {
       "name": "argh94-http",
-      "display": "Argh94/Proxy-List · http",
+      "display": "Argh94/Proxy-List \u00b7 http",
       "home": "https://github.com/Argh94/Proxy-List",
       "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTP.txt",
       "format": "text",
@@ -286,7 +259,7 @@
     },
     {
       "name": "argh94-https",
-      "display": "Argh94/Proxy-List · https",
+      "display": "Argh94/Proxy-List \u00b7 https",
       "home": "https://github.com/Argh94/Proxy-List",
       "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTPS.txt",
       "format": "text",
@@ -298,7 +271,7 @@
     },
     {
       "name": "argh94-socks4",
-      "display": "Argh94/Proxy-List · socks4",
+      "display": "Argh94/Proxy-List \u00b7 socks4",
       "home": "https://github.com/Argh94/Proxy-List",
       "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/SOCKS4.txt",
       "format": "text",
@@ -310,7 +283,7 @@
     },
     {
       "name": "argh94-socks5",
-      "display": "Argh94/Proxy-List · socks5",
+      "display": "Argh94/Proxy-List \u00b7 socks5",
       "home": "https://github.com/Argh94/Proxy-List",
       "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/SOCKS5.txt",
       "format": "text",
@@ -319,54 +292,6 @@
         "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
       },
       "includes": []
-    },
-    {
-      "name": "hideip-http",
-      "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$"
-      },
-      "includes": [
-        "country"
-      ]
-    },
-    {
-      "name": "hideip-https",
-      "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/https.txt",
-      "format": "text",
-      "protocol": "https",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$"
-      },
-      "includes": [
-        "country"
-      ]
-    },
-    {
-      "name": "hideip-socks4",
-      "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$"
-      },
-      "includes": [
-        "country"
-      ]
-    },
-    {
-      "name": "hideip-socks5",
-      "url": "https://github.com/zloi-user/hideip.me/raw/refs/heads/main/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:\\r\\n]+))?\\s*$"
-      },
-      "includes": [
-        "country"
-      ]
     },
     {
       "name": "ercin-http",
@@ -581,16 +506,6 @@
       "includes": []
     },
     {
-      "name": "clarketm",
-      "url": "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
       "name": "hookzof-socks5",
       "url": "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
       "format": "text",
@@ -754,36 +669,6 @@
     {
       "name": "thordata-socks5",
       "url": "https://github.com/Thordata/awesome-free-proxy-list/raw/refs/heads/main/proxies/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "tsprnay-http",
-      "url": "https://raw.githubusercontent.com/Tsprnay/Proxy-lists/master/proxies/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "tsprnay-https",
-      "url": "https://raw.githubusercontent.com/Tsprnay/Proxy-lists/master/proxies/https.txt",
-      "format": "text",
-      "protocol": "https",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "tsprnay-socks5",
-      "url": "https://raw.githubusercontent.com/Tsprnay/Proxy-lists/master/proxies/socks5.txt",
       "format": "text",
       "protocol": "socks5",
       "extract": {
@@ -1914,58 +1799,6 @@
       }
     },
     {
-      "name": "kxdaili-elite",
-      "display": "kxdaili.com elite",
-      "home": "http://www.kxdaili.com/",
-      "url": "http://www.kxdaili.com/dailiip/1/{page}.html",
-      "format": "html",
-      "antibot": true,
-      "extract": {
-        "row_selector": "table tbody tr",
-        "ip": "td:nth-child(1)",
-        "port": "td:nth-child(2)",
-        "protocol": "td:nth-child(4)",
-        "response_time": "td:nth-child(6)",
-        "anonymity": {
-          "const": "elite"
-        }
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      },
-      "country": "CN"
-    },
-    {
-      "name": "kxdaili-anon",
-      "display": "kxdaili.com anonymous",
-      "home": "http://www.kxdaili.com/",
-      "url": "http://www.kxdaili.com/dailiip/2/{page}.html",
-      "format": "html",
-      "antibot": true,
-      "extract": {
-        "row_selector": "table tbody tr",
-        "ip": "td:nth-child(1)",
-        "port": "td:nth-child(2)",
-        "protocol": "td:nth-child(4)",
-        "response_time": "td:nth-child(6)",
-        "anonymity": {
-          "const": "anonymous"
-        }
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      },
-      "country": "CN"
-    },
-    {
       "name": "qiyunip",
       "display": "qiyunip.com",
       "home": "https://www.qiyunip.com/",
@@ -2044,55 +1877,6 @@
       }
     },
     {
-      "name": "sockslist",
-      "display": "sockslist.us",
-      "home": "https://sockslist.us/",
-      "url": "https://sockslist.us/server/index.php?controller=FrontPublic&action=ActionGetProxy",
-      "method": "POST",
-      "body_type": "form",
-      "body": {
-        "page": "{page}",
-        "country": "All"
-      },
-      "format": "html",
-      "antibot": true,
-      "extract": {
-        "row_selector": "table tbody tr",
-        "ip": "td:nth-child(1)",
-        "port": "td:nth-child(2)",
-        "protocol": "td:nth-child(3)",
-        "anonymity": "td:nth-child(4)",
-        "country": "td:nth-child(5)"
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      }
-    },
-    {
-      "name": "fineproxy",
-      "display": "fineproxy.org",
-      "home": "https://fineproxy.org/",
-      "url": "https://fineproxy.org/cn/free-proxy/",
-      "format": "html",
-      "antibot": true,
-      "extract": {
-        "embedded_json": {
-          "selector": "script#fpb-data"
-        },
-        "root": "",
-        "ip": "ip",
-        "port": "port",
-        "protocols": "protos",
-        "country": "country",
-        "anonymity": "anon",
-        "response_time": "latency"
-      }
-    },
-    {
       "name": "proxyelite",
       "display": "proxyelite.info",
       "home": "https://proxyelite.info/",
@@ -2142,31 +1926,6 @@
       }
     },
     {
-      "name": "ip89",
-      "display": "89ip.cn",
-      "home": "https://www.89ip.cn/",
-      "url": "https://api.89ip.cn/tqdl.html?api=1&num=200&port=&address=&isp=",
-      "format": "text",
-      "protocol": "http",
-      "antibot": true,
-      "extract": {
-        "finditer": true,
-        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})$"
-      },
-      "headers": {
-        "Cookie": "SITE_TOTAL_ID=28e0ae30b9d2b0a987fabb84a43c5463",
-        "Host": "api.89ip.cn",
-        "Referer": "https://api.89ip.cn/tqdl.html?api=1&num=200&port=&address=&isp=",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
-      }
-    },
-    {
-      "name": "goodips",
-      "display": "goodips.com (cn api)",
-      "home": "http://api.goodips.com/",
-      "flow": "goodips"
-    },
-    {
       "name": "sixsixdaili",
       "display": "66daili.com (cn api)",
       "home": "http://api.66daili.com/",
@@ -2187,7 +1946,7 @@
     {
       "name": "proxyshare",
       "display": "proxyshare (freeproxy flow)",
-      "home": "https://github.com/CharlesPikachu/freeproxy",
+      "home": "https://www.proxyshare.com/",
       "flow": "proxyshare"
     },
     {
