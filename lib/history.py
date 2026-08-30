@@ -1,38 +1,39 @@
-"""sqlite-backed check history + reliability/quality scoring per proxy"""
+"""sqlite-backed per-protocol proxy state: ema reliability/quality scoring"""
 import random
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-RECENT_WINDOW = 168        # last ~1 week of hourly checks
-RECENT_WEIGHT = 0.7        # blend: 0.7*recent + 0.3*all-time
-RT_GOOD_MS = 500           # quality 1.0 at or below this
-RT_BAD_MS = 8000           # quality speed factor 0.0 at or above this
-NEW_PROXY_SCORE = 0.5      # neutral score for proxies with no history
+EMA_ALPHA = 2 / 169      # ~168-check effective window (matches old RECENT_WINDOW)
+RECENT_WEIGHT = 0.7      # blend: 0.7*ema + 0.3*all-time
+RT_GOOD_MS = 500         # quality 1.0 at or below this
+RT_BAD_MS = 8000         # quality speed factor 0.0 at or above this
+NEW_PROXY_SCORE = 0.5    # neutral score for proxies with no history
 
-SKIP_FAIL_STREAK = 24      # streak where skip probability maxes out
-RECHECK_EVERY_HOURS = 24   # hard floor: never skip if unchecked this long
-BASE_SKIP_PROB = 0.15      # skip chance after a single failed check
-MAX_SKIP_PROB = 0.9        # always leave a 10% recheck chance
+SKIP_FAIL_STREAK = 24    # streak where skip probability maxes out
+RECHECK_EVERY_HOURS = 24  # hard floor: never skip if unchecked this long
+BASE_SKIP_PROB = 0.15    # skip chance after a single failed check
+MAX_SKIP_PROB = 0.9      # always leave a 10% recheck chance
+
+PRUNE_DAYS = 14          # drop proxies not checked within this window, every run
 
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS checks (
-    ip    TEXT NOT NULL,
-    port  INTEGER NOT NULL,
-    ts    TEXT NOT NULL,
-    alive INTEGER NOT NULL,
-    rt_ms INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_checks_proxy ON checks(ip, port, ts);
 CREATE TABLE IF NOT EXISTS proxy_state (
     ip              TEXT NOT NULL,
     port            INTEGER NOT NULL,
+    proto           TEXT NOT NULL,
     fails_streak    INTEGER NOT NULL DEFAULT 0,
     last_ok_ts      TEXT,
     last_checked_ts TEXT,
-    PRIMARY KEY (ip, port)
+    first_seen_ts   TEXT,
+    rel_ema         REAL,
+    rt_ema          REAL,
+    ok_count        INTEGER NOT NULL DEFAULT 0,
+    check_count     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ip, port, proto)
 ) WITHOUT ROWID;
 """
 
@@ -40,104 +41,106 @@ CREATE TABLE IF NOT EXISTS proxy_state (
 class History:
     def __init__(self, path):
         self.db = sqlite3.connect(Path(path))
-        self.db.executescript(_SCHEMA)
+        v = self.db.execute("PRAGMA user_version").fetchone()[0]
+        if v != SCHEMA_VERSION:
+            # schema changed: history is derived data, rebuild from scratch
+            self.db.executescript(
+                "DROP TABLE IF EXISTS checks;"
+                "DROP TABLE IF EXISTS proxy_state;")
+            self.db.executescript(_SCHEMA)
+            self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.db.commit()
+        else:
+            self.db.executescript(_SCHEMA)
         self.db.execute("PRAGMA journal_mode=WAL")
 
-    def record(self, outcomes, ts):
-        """outcomes: iterable of (ip, port, alive: bool, rt_ms|None)"""
-        self.db.executemany(
-            "INSERT INTO checks VALUES (?,?,?,?,?)",
-            ((ip, port, ts, int(alive), rt) for ip, port, alive, rt in outcomes),
-        )
-        self.db.commit()
-
     def state_map(self):
-        """{(ip, port): {fails_streak, last_ok_ts, last_checked_ts}}"""
+        """{(ip, port, proto): {fails_streak, last_ok_ts, last_checked_ts,
+        first_seen_ts, rel_ema, rt_ema, ok_count, check_count}}"""
         rows = self.db.execute(
-            "SELECT ip, port, fails_streak, last_ok_ts, last_checked_ts"
-            " FROM proxy_state"
-        ).fetchall()
-        return {(ip, port): {"fails_streak": fs, "last_ok_ts": ok,
-                             "last_checked_ts": ck}
-                for ip, port, fs, ok, ck in rows}
+            "SELECT ip, port, proto, fails_streak, last_ok_ts, last_checked_ts,"
+            " first_seen_ts, rel_ema, rt_ema, ok_count, check_count"
+            " FROM proxy_state")
+        return {(ip, port, proto): {
+            "fails_streak": fs, "last_ok_ts": ok, "last_checked_ts": ck,
+            "first_seen_ts": fs_ts, "rel_ema": rel, "rt_ema": rt,
+            "ok_count": ocnt, "check_count": ccnt}
+            for ip, port, proto, fs, ok, ck, fs_ts, rel, rt, ocnt, ccnt in rows}
 
     def update_state(self, outcomes, ts, prev):
-        """bump streaks/last-seen per proxy from this run's outcomes.
-        prev: state_map() loaded before this batch was checked"""
+        """fold this run's per-proto outcomes into proxy_state.
+
+        outcomes: [(ip, port, proto, alive, rt_ms|None)]. prev: state_map from
+        before the run. streaks/last-ok, ema reliability, ema response time and
+        lifetime counters all advance one step per outcome."""
         rows = []
-        for ip, port, alive, _rt in outcomes:
-            st = prev.get((ip, port), {})
+        for ip, port, proto, alive, rt in outcomes:
+            st = prev.get((ip, port, proto), {})
             streak = 0 if alive else st.get("fails_streak", 0) + 1
             last_ok = ts if alive else st.get("last_ok_ts")
-            rows.append((ip, port, streak, last_ok, ts))
+            rel = st.get("rel_ema")
+            rel = float(alive) if rel is None else rel + EMA_ALPHA * (alive - rel)
+            rt_ema = st.get("rt_ema")
+            if alive and rt is not None:
+                rt_ema = float(rt) if rt_ema is None \
+                    else rt_ema + EMA_ALPHA * (rt - rt_ema)
+            rows.append((
+                ip, port, proto, streak, last_ok, ts,
+                st.get("first_seen_ts") or ts, rel, rt_ema,
+                st.get("ok_count", 0) + (1 if alive else 0),
+                st.get("check_count", 0) + 1))
         self.db.executemany(
-            "INSERT INTO proxy_state (ip, port, fails_streak, last_ok_ts,"
-            " last_checked_ts) VALUES (?,?,?,?,?)"
-            " ON CONFLICT(ip, port) DO UPDATE SET"
+            "INSERT INTO proxy_state (ip, port, proto, fails_streak, last_ok_ts,"
+            " last_checked_ts, first_seen_ts, rel_ema, rt_ema, ok_count,"
+            " check_count) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(ip, port, proto) DO UPDATE SET"
             " fails_streak=excluded.fails_streak,"
             " last_ok_ts=excluded.last_ok_ts,"
-            " last_checked_ts=excluded.last_checked_ts",
-            rows,
-        )
+            " last_checked_ts=excluded.last_checked_ts,"
+            " rel_ema=excluded.rel_ema,"
+            " rt_ema=excluded.rt_ema,"
+            " ok_count=excluded.ok_count,"
+            " check_count=excluded.check_count",
+            rows)
         self.db.commit()
 
     def scores(self):
-        """{(ip, port): {reliability, quality, checks_total, checks_ok,
+        """{(ip, port, proto): {reliability, quality, checks_total, checks_ok,
         first_seen, last_seen}}"""
-        rows = self.db.execute(
-            "SELECT ip, port, alive, rt_ms, ts FROM checks ORDER BY ts"
-        ).fetchall()
-
-        per = {}
-        for ip, port, alive, rt, ts in rows:
-            key = (ip, port)
-            e = per.get(key)
-            if e is None:
-                e = per[key] = {
-                    "ok": 0, "total": 0,
-                    "recent": [],           # (alive, rt) last RECENT_WINDOW
-                    "first": ts, "last": ts,
-                }
-            e["total"] += 1
-            e["ok"] += alive
-            e["recent"].append((alive, rt))
-            if len(e["recent"]) > RECENT_WINDOW:
-                del e["recent"][0:len(e["recent"]) - RECENT_WINDOW]
-            e["last"] = ts
-
         out = {}
-        for (ip, port), e in per.items():
-            total, ok = e["total"], e["ok"]
+        rows = self.db.execute(
+            "SELECT ip, port, proto, rel_ema, rt_ema, ok_count, check_count,"
+            " first_seen_ts, last_checked_ts FROM proxy_state")
+        for ip, port, proto, rel_ema, rt_ema, ok, total, first, last in rows:
+            if not total:
+                continue
             rel_all = ok / total
-
-            recent = e["recent"]
-            n = len(recent)
-            # linear recency weights: newest check weighs n, oldest 1
-            wsum = n * (n + 1) / 2
-            wok = sum((i + 1) * a for i, (a, _) in enumerate(recent))
-            rel_recent = wok / wsum
-
-            rel = RECENT_WEIGHT * rel_recent + (1 - RECENT_WEIGHT) * rel_all
-
-            # speed factor from median rt of successful recent checks
-            rts = sorted(rt for a, rt in recent if a and rt is not None)
-            if rts:
-                med = rts[len(rts) // 2]
-                speed = max(0.0, min(1.0,
-                            1.0 - (med - RT_GOOD_MS) / (RT_BAD_MS - RT_GOOD_MS)))
-            else:
+            rel = RECENT_WEIGHT * (rel_ema or 0.0) + (1 - RECENT_WEIGHT) * rel_all
+            if rt_ema is None:
                 speed = NEW_PROXY_SCORE
-            quality = rel * speed
-
-            out[(ip, port)] = {
+            else:
+                speed = min(1.0, max(
+                    0.0, 1.0 - (rt_ema - RT_GOOD_MS) / (RT_BAD_MS - RT_GOOD_MS)))
+            out[(ip, port, proto)] = {
                 "reliability": round(rel, 4),
-                "quality": round(quality, 4),
+                "quality": round(rel * speed, 4),
                 "checks_total": total,
                 "checks_ok": ok,
-                "first_seen": e["first"],
-                "last_seen": e["last"],
+                "first_seen": first,
+                "last_seen": last,
             }
         return out
+
+    def prune(self, now_ts=None):
+        """drop proxies not checked within PRUNE_DAYS, then vacuum."""
+        now = parse_ts(now_ts) if now_ts else datetime.now(timezone.utc)
+        cutoff = (now - timedelta(days=PRUNE_DAYS)).strftime(TS_FMT)
+        n = self.db.execute(
+            "DELETE FROM proxy_state WHERE last_checked_ts < ?",
+            (cutoff,)).rowcount
+        self.db.commit()
+        self.db.execute("VACUUM")
+        return n
 
     def close(self):
         self.db.close()
@@ -148,30 +151,30 @@ def parse_ts(s):
 
 
 def skip_keys(records, state, now_ts=None, rng=random):
-    """(ip, port) of proxies to skip this run, chosen probabilistically:
+    """(ip, port, proto) probes to skip this run, chosen probabilistically:
     skip chance ramps from BASE_SKIP_PROB at streak 1 up to MAX_SKIP_PROB
-    at SKIP_FAIL_STREAK. proxies unchecked for RECHECK_EVERY_HOURS are
-    always re-checked so nothing starves"""
+    at SKIP_FAIL_STREAK. never skipped if unchecked for RECHECK_EVERY_HOURS.
+    records with no claimed protocols are matched against http/https state."""
     now_ts = now_ts or datetime.now(timezone.utc).strftime(TS_FMT)
     now = parse_ts(now_ts)
-    out = set()
+    skips = set()
     for r in records:
-        st = state.get((r["ip"], r["port"]))
-        if not st:
-            continue
-        streak = st["fails_streak"]
-        if streak < 1:
-            continue
-        last = st["last_checked_ts"]
-        if last:
-            try:
+        claimed = [p for p in (r.get("protocols") or []) if p] \
+            or ["http", "https"]
+        for proto in claimed:
+            st = state.get((r["ip"], r["port"], proto))
+            if not st:
+                continue
+            streak = st["fails_streak"]
+            if streak < 1:
+                continue
+            last = st["last_checked_ts"]
+            if last:
                 hours = (now - parse_ts(last)).total_seconds() / 3600
-            except ValueError:
-                continue  # unparseable ts: check it, don't guess
-            if hours >= RECHECK_EVERY_HOURS:
-                continue  # guarantee recheck after 24h
-        p = BASE_SKIP_PROB + (MAX_SKIP_PROB - BASE_SKIP_PROB) * min(
-            1.0, (streak - 1) / (SKIP_FAIL_STREAK - 1))
-        if rng.random() < p:
-            out.add((r["ip"], r["port"]))
-    return out
+                if hours >= RECHECK_EVERY_HOURS:
+                    continue
+            p = BASE_SKIP_PROB + (MAX_SKIP_PROB - BASE_SKIP_PROB) * min(
+                1.0, (streak - 1) / (SKIP_FAIL_STREAK - 1))
+            if rng.random() < p:
+                skips.add((r["ip"], r["port"], proto))
+    return skips

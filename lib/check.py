@@ -138,19 +138,23 @@ class Checker:
         best_rt = None
         best_raw = None
         ok = set()
-        for p in self._probe_plan(rec):
+        probes = {}
+        for p in rec.get("_plan") or self._probe_plan(rec):
             try:
                 ms = await self._probe(rec["ip"], rec["port"], p, session)
             except Exception:
+                probes[p] = None
                 continue
             rt = self._calibrated(ms)
             raw = round(ms)
+            probes[p] = rt
             if best_rt is None or rt < best_rt:
                 best_rt = rt
                 best_raw = raw
             ok.add(p)
             if p == "https":
                 ok.add("http")
+        rec["_probes"] = probes
         if not ok:
             return False
         rec["protocols"] = sorted(ok)
@@ -206,23 +210,29 @@ async def _progress_reporter(total, counters, interval=10, concurrency=0):
 
 async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=()):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
-    skip: iterable of (ip, port) known-dead proxies to not probe.
+    skip: iterable of (ip, port, proto) known-dead protocol probes to skip;
+    a record is only dropped when every probe in its plan is skipped.
     prev_alive: (ip, port) pairs with a history success — failures among them
     get one second-chance re-probe at the end.
     concurrency 0 = derive from a speedtest (mbps * 2, clamped).
     returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
-    dropped from alive_records; outcomes is [(ip, port, alive, rt_ms|None)]
-    for everything actually checked"""
+    dropped from alive_records; outcomes is [(ip, port, proto, alive,
+    rt_ms|None)] for every protocol actually probed"""
     import random
 
     skip_set = set(skip)
+    skipped = 0
     if skip_set:
-        before = len(records)
-        records = [r for r in records
-                   if (r["ip"], r["port"]) not in skip_set]
-        skipped = before - len(records)
-    else:
-        skipped = 0
+        kept = []
+        for r in records:
+            plan = [p for p in Checker._probe_plan(r)
+                    if (r["ip"], r["port"], p) not in skip_set]
+            if plan:
+                r["_plan"] = plan
+                kept.append(r)
+            else:
+                skipped += 1
+        records = kept
     # shuffle so dead-heavy source clusters don't skew the running rate/eta
     random.shuffle(records)
     c = Checker()
@@ -291,14 +301,18 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
         await session.close()
 
     outcomes = [
-        (r["ip"], r["port"], ok, r.get("response_time_ms") if ok else None)
-        for r, ok in zip(records, results)
+        (r["ip"], r["port"], proto, rt is not None, rt)
+        for r in records
+        for proto, rt in (r.get("_probes") or {}).items()
     ]
     alive = [r for r, ok in zip(records, results) if ok]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for r in alive:
         r["last_checked"] = now
         r.pop("_provided", None)
+    for r in records:
+        r.pop("_plan", None)
+        r.pop("_probes", None)
     stats = {
         "total": len(records),
         "alive": len(alive),
