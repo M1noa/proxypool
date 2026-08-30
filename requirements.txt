@@ -5,3 +5,4 @@ aiohttp
 aiohttp-socks
 maxminddb
 quickjs
+psutil
