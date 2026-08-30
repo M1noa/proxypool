@@ -316,8 +316,9 @@ def _run_prefetch(src, session):
     return url, headers
 
 
-def fetch_source(src, timeout=30, max_pages_default=20):
+def fetch_source(src, timeout=None, max_pages_default=20):
     """fetch all pages of a source -> (records, errors[])"""
+    timeout = timeout or src.get("timeout", 30)
     if src.get("flow"):
         from .flows import FLOWS
 
@@ -383,27 +384,18 @@ def fetch_source(src, timeout=30, max_pages_default=20):
             page_body = {k: (page if isinstance(v, str) and v in ("{page}", "{offset}")
                              else v) for k, v in body.items()}
         content = None
-        for attempt in range(3):
-            if delay:
-                import time
+        if delay:
+            import time
 
-                time.sleep(delay)
-            try:
-                content = request(url, method=method, body=page_body,
-                                  body_type=body_type, timeout=timeout,
-                                  session=session,
-                                  headers=extra_headers or None)
-                break
-            except Exception as e:
-                msg = str(e)
-                retryable = "429" in msg or "500" in msg or "502" in msg or "503" in msg
-                if attempt < 2 and retryable:
-                    import time
-
-                    time.sleep(2 ** (attempt + 1))
-                else:
-                    errors.append(f"{src['name']} page={page}: fetch failed: {e}")
-                    break
+            time.sleep(delay)
+        try:
+            # request() already retries 429/5xx/conn errors with backoff
+            content = request(url, method=method, body=page_body,
+                              body_type=body_type, timeout=timeout,
+                              session=session,
+                              headers=extra_headers or None)
+        except Exception as e:
+            errors.append(f"{src['name']} page={page}: fetch failed: {e}")
         if content is None:
             break
         # recompute total pages from server-reported total on the first page
