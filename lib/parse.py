@@ -3,7 +3,7 @@ import json as _json
 import math
 import re
 
-from .util import dig, get, normalize_anon, parse_protocol, to_bool
+from .util import dig, get, make_session, normalize_anon, parse_protocol, request, to_bool
 
 
 def ip_version_of(ip):
@@ -28,6 +28,9 @@ def _is_bogus_ip(ip):
 def _norm_record(raw, src, default_proto=None):
     """raw: dict of extracted field values -> normalized record"""
     ip = str(raw.get("ip") or "").strip()
+    # combined "ip:port" field (single colon only, leaves ipv6 alone)
+    if not raw.get("port") and ip.count(":") == 1:
+        ip, raw["port"] = (x.strip() for x in ip.rsplit(":", 1))
     low = ip.lower()
     if low == "localhost" or low.endswith(".localhost"):
         return None
@@ -56,9 +59,12 @@ def _norm_record(raw, src, default_proto=None):
 
     # protocols
     protos = []
-    if raw.get("protocols") and isinstance(raw["protocols"], list):
-        for p in raw["protocols"]:
-            protos.extend(parse_protocol(p))
+    if raw.get("protocols"):
+        p = raw["protocols"]
+        if isinstance(p, str):
+            p = re.split(r"[,/\s]+", p)
+        for x in p:
+            protos.extend(parse_protocol(x))
     elif raw.get("protocol"):
         protos.extend(parse_protocol(raw["protocol"]))
     if not protos and default_proto:
@@ -74,12 +80,16 @@ def _norm_record(raw, src, default_proto=None):
         # a full name landed in the country slot
         name = name or code
     rec["country_name"] = name.strip()
+    if not rec["country"] and src.get("country"):
+        rec["country"] = str(src["country"]).upper()[:2]
 
     # anonymity / https / response time
-    rec["anonymity"] = normalize_anon(raw.get("anonymity"))
+    rec["anonymity"] = normalize_anon(raw.get("anonymity") or src.get("anonymity"))
     rec["https"] = to_bool(raw.get("https"))
     rt = raw.get("response_time")
     if isinstance(rt, (int, float)) and rt > 0:
+        if src.get("speed_unit") == "s":
+            rt = rt * 1000  # upstream reports seconds, store milliseconds
         rec["response_time"] = float(rt)
 
     # extra metadata, nothing dropped
@@ -147,6 +157,14 @@ def _cell_text(row, sel):
             val = base64.b64decode(str(val)).decode()
         except Exception:
             return ""
+    elif decode == "base64_reverse":
+        # base64 of the reversed string (proxyverity)
+        import base64
+
+        try:
+            val = base64.b64decode(str(val)).decode()[::-1]
+        except Exception:
+            return ""
     return str(val).strip()
 
 
@@ -162,7 +180,10 @@ def _extract_html(html_text, ex):
     for row in soup.select(ex.get("row_selector", "tr")):
         out = {}
         for f, sel in fields.items():
-            out[f] = _cell_text(row, sel)
+            if isinstance(sel, dict) and "const" in sel:
+                out[f] = sel["const"]
+            else:
+                out[f] = _cell_text(row, sel)
         for mk, sel in (ex.get("source_meta") or {}).items():
             out[f"meta_{mk}"] = _cell_text(row, sel)
         yield out
@@ -192,11 +213,13 @@ def parse_content(src, content):
 
     elif fmt == "text":
         regex = re.compile(ex["regex"])
-        for line in content.splitlines():
-            m = regex.match(line.strip())
-            if not m:
-                continue
-            g = m.groupdict()
+        if ex.get("finditer"):
+            groups = (m.groupdict() for m in regex.finditer(content))
+        else:
+            groups = (m.groupdict() for m in
+                      (regex.match(line.strip()) for line in content.splitlines())
+                      if m)
+        for g in groups:
             # inline prefix wins over file default
             r = {
                 "ip": g.get("ip"),
@@ -214,6 +237,37 @@ def parse_content(src, content):
                 recs.append(rec)
 
     elif fmt == "html":
+        emb = ex.get("embedded_json")
+        if emb:
+            # json blob inside a <script> tag, parsed with the json rules above
+            import json as _json
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(content, "html.parser")
+            rx = emb.get("regex")
+            doc = None
+            for el in soup.select(emb.get("selector", "script")):
+                text = (el.string or el.get_text()) if el else ""
+                if rx:
+                    m = re.search(rx, text, re.S)
+                    if not m:
+                        continue
+                    text = m.group(1)
+                try:
+                    doc = _json.loads(text.strip())
+                    break
+                except Exception:
+                    continue
+            if doc is None:
+                return recs
+            items = dig(doc, ex.get("root", "")) if ex.get("root") else doc
+            if not isinstance(items, list):
+                items = [items] if items else []
+            for r in _extract_json(items, ex):
+                rec = _norm_record(r, src, proto)
+                if rec:
+                    recs.append(rec)
+            return recs
         for r in _extract_html(content, ex):
             rec = _norm_record(r, src, proto)
             if rec:
@@ -222,16 +276,78 @@ def parse_content(src, content):
     return recs
 
 
+def _run_prefetch(src, session):
+    """run prefetch steps; returns (url, extra_headers) for the real fetch.
+
+    each step: { url?, method?, body?, body_type?, regex?, group?, json_path?,
+                 header?, as_url?, base? }
+    - regex/json_path extract a value from the response
+    - header stores it as a request header for subsequent requests
+    - as_url feeds it into the next step's url (and the real fetch when the
+      last step has it)
+    """
+    import re as _re
+
+    steps = src.get("prefetch") or []
+    headers = {}
+    next_url = None
+    for step in steps:
+        u = step.get("url") or next_url
+        content = request(u, method=step.get("method", "GET"),
+                          body=step.get("body"),
+                          body_type=step.get("body_type"),
+                          session=session, headers=headers)
+        val = None
+        if step.get("json_path"):
+            val = dig(_json.loads(content), step["json_path"])
+        elif step.get("regex"):
+            m = _re.search(step["regex"], content, _re.S)
+            val = m.group(step.get("group", 1)) if m else None
+        if val is None:
+            raise ValueError(f"prefetch step failed for {u}")
+        val = str(val).strip()
+        if step.get("header"):
+            headers[step["header"]] = val
+        if step.get("as_url"):
+            if step.get("base") and val.startswith("/"):
+                val = step["base"] + val
+            next_url = val
+    url = next_url if (steps and steps[-1].get("as_url")) else src["url"]
+    return url, headers
+
+
 def fetch_source(src, timeout=30, max_pages_default=20):
     """fetch all pages of a source -> (records, errors[])"""
+    if src.get("flow"):
+        from .flows import FLOWS
+
+        try:
+            return FLOWS[src["flow"]](src)
+        except Exception as e:
+            return [], [f"{src['name']}: flow '{src['flow']}' failed: {e}"]
+
     recs = []
     errors = []
     pag = src.get("pagination")
+    session = make_session(src)
+    method = src.get("method", "GET")
+    body = src.get("body")
+    body_type = src.get("body_type")
+    extra_headers = {}
+
+    url_template = src["url"]
+    if src.get("prefetch"):
+        try:
+            url_template, extra_headers = _run_prefetch(src, session)
+        except Exception as e:
+            return [], [f"{src['name']}: prefetch failed: {e}"]
 
     def fetch_once(url):
-        return get(url, timeout=timeout, headers=src.get("headers"))
+        return request(url, method=method, body=body, body_type=body_type,
+                       timeout=timeout, session=session,
+                       headers=extra_headers or None)
 
-    urls = [src["url"]]
+    urls = [url_template]
     if src.get("fallback_url"):
         urls.append(src["fallback_url"])
 
@@ -261,7 +377,11 @@ def fetch_source(src, timeout=30, max_pages_default=20):
 
     n = 0
     while n < max_pages:
-        url = src["url"].replace("{page}", str(page)).replace("{offset}", str(page))
+        url = url_template.replace("{page}", str(page)).replace("{offset}", str(page))
+        page_body = body
+        if isinstance(body, dict):
+            page_body = {k: (page if isinstance(v, str) and v in ("{page}", "{offset}")
+                             else v) for k, v in body.items()}
         content = None
         for attempt in range(3):
             if delay:
@@ -269,7 +389,10 @@ def fetch_source(src, timeout=30, max_pages_default=20):
 
                 time.sleep(delay)
             try:
-                content = fetch_once(url)
+                content = request(url, method=method, body=page_body,
+                                  body_type=body_type, timeout=timeout,
+                                  session=session,
+                                  headers=extra_headers or None)
                 break
             except Exception as e:
                 msg = str(e)

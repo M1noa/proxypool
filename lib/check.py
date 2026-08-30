@@ -10,7 +10,9 @@ ECHO_URLS = ["http://azenv.net/", "http://httpbin.org/get"]
 MYIP_URLS = ["https://api.ipify.org", "https://icanhazip.com"]
 BASELINE_PINGS = 5
 CONCURRENCY = 512
-TIMEOUT = 8
+# all proxies ping the same endpoint (google generate_204); 6s keeps the run
+# moving — most dead proxies hang until timeout, and 74k of them add up fast
+TIMEOUT = 6
 
 ANON_KEYS = ("via", "x-forwarded-for", "forwarded", "client-ip")
 
@@ -158,9 +160,20 @@ class Checker:
             return True
 
 
-async def check_all(records, concurrency=CONCURRENCY):
+async def check_all(records, concurrency=CONCURRENCY, skip=()):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
-    returns (alive_records, stats) — dead proxies are dropped"""
+    skip: iterable of (ip, port) known-dead proxies to not probe.
+    returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
+    dropped from alive_records; outcomes is [(ip, port, alive, rt_ms|None)]
+    for everything actually checked"""
+    skip_set = set(skip)
+    if skip_set:
+        before = len(records)
+        records = [r for r in records
+                   if (r["ip"], r["port"]) not in skip_set]
+        skipped = before - len(records)
+    else:
+        skipped = 0
     c = Checker()
     await c.calibrate()
     sem = asyncio.Semaphore(concurrency)
@@ -172,6 +185,10 @@ async def check_all(records, concurrency=CONCURRENCY):
             return False
 
     results = await asyncio.gather(*[run(r) for r in records])
+    outcomes = [
+        (r["ip"], r["port"], ok, r.get("response_time_ms") if ok else None)
+        for r, ok in zip(records, results)
+    ]
     alive = [r for r, ok in zip(records, results) if ok]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for r in alive:
@@ -181,6 +198,7 @@ async def check_all(records, concurrency=CONCURRENCY):
         "total": len(records),
         "alive": len(alive),
         "dead": len(records) - len(alive),
+        "skipped": skipped,
         "baseline_ms": round(c.baseline),
     }
-    return alive, stats
+    return alive, stats, outcomes, skipped

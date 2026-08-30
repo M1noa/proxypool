@@ -99,6 +99,7 @@ def finalize(records):
 
 def sort_records(records):
     return sorted(records, key=lambda r: (
+        -(r.get("quality") or 0),
         r.get("response_time_ms") is None,
         r.get("response_time_ms") or float("inf"),
     ))
@@ -115,8 +116,9 @@ def _html_table(headers, rows):
             f'<thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>')
 
 
-def write_outputs(records, fetched_per_source=None, source_names=None, overall_success=None):
+def write_outputs(records, fetched_per_source=None, sources=None, overall_success=None):
     OUT.mkdir(exist_ok=True)
+    carried = {id(r) for r in records if r.get("_carried")}
     for r in records:
         r.pop("_provided", None)
         r.pop("_carried", None)
@@ -133,6 +135,8 @@ def write_outputs(records, fetched_per_source=None, source_names=None, overall_s
     }
     for r in records:
         ps = sorted(r["protocols"])
+        if not ps:
+            continue  # no protocol -> can't form ip:port lines
         line = f"{r['ip']}:{r['port']}\n"
         if "http" in ps:
             buckets["http.txt"].append(line)
@@ -179,35 +183,74 @@ def write_outputs(records, fetched_per_source=None, source_names=None, overall_s
                    rf"\g<1>{_html_table(['country', 'proxies'], crows)}\g<2>", t,
                    flags=re.S)
 
-        # per-source table: sorted by success %, with avg rt / top country / top port
+        # per-source table: sorted by overall quality score. quality blends
+        # live success rate, avg response time, and reliability over time.
         if fetched_per_source is not None:
+            from lib.history import RT_GOOD_MS, RT_BAD_MS
+
+            def _speed_pct(avg_rt):
+                if not avg_rt:
+                    return 50
+                return round(100 * max(0.0, min(1.0,
+                    1.0 - (avg_rt - RT_GOOD_MS) / (RT_BAD_MS - RT_GOOD_MS))))
+
+            def _reliability_pct(rl):
+                # rl in [0,1]; None (no history) -> neutral 0.5
+                return round(100 * (rl if rl is not None else 0.5))
+
             agg = {}
             for r in records:
+                if id(r) in carried:
+                    continue  # recycled proxies aren't fresh source IPs
+                rl = r.get("reliability")
                 for s in r.get("sources", []):
-                    a = agg.setdefault(
-                        s, {"alive": 0, "rts": [], "countries": Counter(), "ports": Counter()})
+                    a = agg.setdefault(s, {"alive": 0, "rts": [], "rels": [],
+                                           "countries": Counter(), "ports": Counter()})
                     a["alive"] += 1
                     rt = r.get("response_time_ms")
                     if rt:
                         a["rts"].append(rt)
+                    a["rels"].append(rl)
                     if r.get("country"):
                         a["countries"][r["country"]] += 1
                     a["ports"][r["port"]] += 1
-            names = source_names or sorted(fetched_per_source)
+            home = {s["name"]: s.get("home") for s in sources}
+            display = {s["name"]: s.get("display") or s["name"] for s in sources}
+            names = list(display) or sorted(fetched_per_source)
             rows = []
             for s in names:
                 fetched = fetched_per_source.get(s, 0)
-                a = agg.get(s, {"alive": 0, "rts": [], "countries": Counter(), "ports": Counter()})
+                a = agg.get(s, {"alive": 0, "rts": [], "rels": [],
+                                "countries": Counter(), "ports": Counter()})
                 alive = a["alive"]
                 pct = round(100 * alive / fetched) if fetched else 0
                 avg_rt = round(sum(a["rts"]) / len(a["rts"])) if a["rts"] else 0
+                rel = (sum(x for x in a["rels"] if x is not None)
+                       / len([x for x in a["rels"] if x is not None])
+                       if a["rels"] and any(x is not None for x in a["rels"]) else 0.5)
+                rel_pct = _reliability_pct(rel if a["rels"] else None)
+                speed = _speed_pct(avg_rt)
+                quality = round(0.5 * pct + 0.3 * speed + 0.2 * rel_pct)
+                if s == "proxypool":
+                    # every proxy here passed a full check this run; keep it on top
+                    quality = 100
                 top_country = a["countries"].most_common(1)[0][0] if a["countries"] else "?"
                 top_port = a["ports"].most_common(1)[0][0] if a["ports"] else "?"
-                rows.append((pct, alive, s, fetched, f"{avg_rt}ms", top_country, str(top_port)))
+                rows.append((quality, alive, s, fetched, pct, rel_pct, f"{avg_rt}ms",
+                             top_country, str(top_port)))
             rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
-            srows = [[x[2], x[3], x[1], f"{x[0]}%", x[4], x[5], x[6]] for x in rows]
+            srows = []
+            for i, x in enumerate(rows):
+                label = display[x[2]]
+                link = home.get(x[2])
+                cell = f'<a href="{link}">{label}</a>' if link else label
+                if i == 0:  # bold the #1 source
+                    cell = f"<b>{cell}</b>"
+                srows.append([cell, f"{x[0]}", f"{x[4]}%", f"{x[5]}%", x[6],
+                              x[3], x[1], x[7], x[8]])
             source_table = _html_table(
-                ["source", "fetched", "alive", "success", "avg rt", "top country", "top port"],
+                ["source", "quality", "success", "reliability", "avg rt",
+                 "fetched", "alive", "top country", "top port"],
                 srows)
             t = re.sub(r"<!-- sources:start -->.*?<!-- sources:end -->",
                        f"<!-- sources:start -->\n{source_table}\n<!-- sources:end -->",
@@ -351,14 +394,39 @@ def main():
 
         print(f"checking {len(records)} proxies "
               f"(baseline calibrated, concurrency=512)...")
-        records, stats = asyncio.run(check_all(records))
+
+        from lib.history import (History, NEW_PROXY_SCORE, skip_keys)
+
+        hist = History(ROOT / "history.db")
+        state = hist.state_map()
+        skips = skip_keys(records, state)
+        if skips:
+            print(f"skipping {len(skips)} proxies that have been dead "
+                  f"(re-checked in ~{24}h)")
+        records, stats, outcomes, _ = asyncio.run(check_all(records, skip=skips))
         print(f"alive={stats['alive']} dead={stats['dead']} "
-              f"baseline={stats['baseline_ms']}ms")
+              f"skipped={stats['skipped']} baseline={stats['baseline_ms']}ms")
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        hist.record(outcomes, ts)
+        hist.update_state(outcomes, ts, state)
+        scores = hist.scores()
+        hist.close()
+        for r in records:
+            s = scores.get((r["ip"], r["port"]))
+            if s:
+                r.update(s)
+            else:
+                r.update(reliability=NEW_PROXY_SCORE, quality=NEW_PROXY_SCORE,
+                         checks_total=0, checks_ok=0,
+                         first_seen=None, last_seen=None)
+        print(f"history: {len(scores)} proxies scored")
+
         alive_source = sum(1 for r in records if not r.get("_carried"))
         overall_success = (round(100 * alive_source / source_fetched)
                            if source_fetched else 0)
 
-    counts = write_outputs(records, fetched_per_source, source_names, overall_success)
+    counts = write_outputs(records, fetched_per_source, sources, overall_success)
     print(f"http={counts['http.txt']} https={counts['https.txt']} "
           f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']}")
     if errors:
