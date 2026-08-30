@@ -111,20 +111,48 @@ def make_session(src=None):
 
 
 def request(url, method="GET", body=None, body_type=None,
-            timeout=30, session=None, headers=None):
-    """single http call; body_type 'form' posts form-encoded, default json"""
+            timeout=30, session=None, headers=None,
+            max_attempts=6, backoff=2.0, max_wait=120):
+    """single http call with retry/backoff; honors Retry-After on 429/5xx,
+    retries connection errors and timeouts; gives up after max_attempts.
+    body_type 'form' posts form-encoded, default json"""
+    import time as _time
+    import requests as _requests
+
     sess = session or make_session()
     h = dict(sess.headers)
     if headers:
         h.update(headers)
-    if method.upper() == "POST":
-        if body_type == "form":
-            r = sess.post(url, data=body or {}, timeout=timeout, headers=h)
-        else:
-            r = sess.post(url, json=body or {}, timeout=timeout, headers=h)
-    else:
-        r = sess.get(url, timeout=timeout, headers=h)
-    r.raise_for_status()
+
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if method.upper() == "POST":
+                if body_type == "form":
+                    r = sess.post(url, data=body or {}, timeout=timeout, headers=h)
+                else:
+                    r = sess.post(url, json=body or {}, timeout=timeout, headers=h)
+            else:
+                r = sess.get(url, timeout=timeout, headers=h)
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                ra = r.headers.get("retry-after")
+                try:
+                    wait = float(ra) if ra else min(backoff ** attempt, max_wait)
+                except (TypeError, ValueError):
+                    wait = min(backoff ** attempt, max_wait)
+                _time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r.text
+        except (_requests.exceptions.ConnectionError,
+                _requests.exceptions.Timeout) as e:
+            last_err = e
+            if attempt < max_attempts:
+                _time.sleep(min(backoff ** attempt, max_wait))
+                continue
+            raise
+    if last_err:
+        raise last_err
     return r.text
 
 
