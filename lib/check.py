@@ -9,7 +9,11 @@ CHECK_URL = "http://www.google.com/generate_204"
 ECHO_URLS = ["http://azenv.net/", "http://httpbin.org/get"]
 MYIP_URLS = ["https://api.ipify.org", "https://icanhazip.com"]
 BASELINE_PINGS = 5
-CONCURRENCY = 512
+CONCURRENCY = 512  # fallback when no speedtest measurement is available
+CONCURRENCY_MIN = 128
+CONCURRENCY_MAX = 4096
+SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10000000"
+SPEEDTEST_CONN = 4
 # all proxies ping the same endpoint (google generate_204); 6s keeps the run
 # moving — most dead proxies hang until timeout, and 74k of them add up fast
 TIMEOUT = 6
@@ -43,6 +47,7 @@ class Checker:
     def __init__(self):
         self.baseline = 0.0
         self.my_ip = ""
+        self.mbps = 0.0
 
     def _calibrated(self, elapsed_ms):
         return max(1, round(elapsed_ms - self.baseline))
@@ -68,6 +73,25 @@ class Checker:
                         break
                 except Exception:
                     continue
+
+    async def measure_mbps(self):
+        """multithreaded speedtest: parallel downloads, aggregate throughput"""
+        async def one(session):
+            async with session.get(SPEEDTEST_URL) as r:
+                r.raise_for_status()
+                return len(await r.read())
+
+        t0 = time.monotonic()
+        try:
+            async with aiohttp.ClientSession() as s:
+                sizes = await asyncio.wait_for(
+                    asyncio.gather(*[one(s) for _ in range(SPEEDTEST_CONN)]),
+                    timeout=30)
+        except Exception:
+            return 0.0
+        dt = time.monotonic() - t0
+        self.mbps = (sum(sizes) * 8 / 1e6) / dt if dt > 0 else 0.0
+        return self.mbps
 
     async def _probe(self, ip, port, probe):
         """returns calibrated ms or raises"""
@@ -160,8 +184,10 @@ class Checker:
             return True
 
 
-async def _progress_reporter(total, counters, interval=10):
-    """every `interval`s log checked/rate/alive/dead/elapsed/eta/cpu/net"""
+async def _progress_reporter(total, counters, interval=10, concurrency=0):
+    """every `interval`s log checked/avg-rate/alive/dead/elapsed/eta/cpu/net.
+    eta uses the cumulative average rate over the whole run, so it gets more
+    accurate as more data comes in."""
     import os
     import time as _t
 
@@ -170,7 +196,6 @@ async def _progress_reporter(total, counters, interval=10):
     except ImportError:
         psutil = None
     t0 = _t.monotonic()
-    last_checked = 0
     last_net = psutil.net_io_counters() if psutil else None
     if psutil:
         psutil.cpu_percent(None)  # prime; first call is meaningless
@@ -178,8 +203,7 @@ async def _progress_reporter(total, counters, interval=10):
         await asyncio.sleep(interval)
         elapsed = _t.monotonic() - t0
         checked = counters["checked"]
-        rate = (checked - last_checked) / interval
-        last_checked = checked
+        rate = checked / elapsed if elapsed else 0
         remaining = total - checked
         eta_s = remaining / rate if rate > 0 else float("inf")
         eta = f"{eta_s / 60:.1f}min" if eta_s != float("inf") else "--"
@@ -188,23 +212,26 @@ async def _progress_reporter(total, counters, interval=10):
             io = psutil.net_io_counters()
             d = ((io.bytes_sent + io.bytes_recv)
                  - (last_net.bytes_sent + last_net.bytes_recv))
-            net = f" net {d / interval / 1e6:.1f}MB/s"
+            net = f" net {d / interval * 8 / 1e6:.0f}mbps"
             last_net = io
         else:
             cpu = f"load {os.getloadavg()[0]:.1f}"
             net = ""
         print(f"[check {elapsed:6.0f}s] {checked}/{total} "
-              f"({rate:.0f}/s) alive={counters['alive']} "
-              f"dead={counters['dead']} eta={eta} cpu={cpu}{net}",
+              f"({rate:.0f}/s avg) alive={counters['alive']} "
+              f"dead={counters['dead']} eta={eta} cpu={cpu}{net} conc={concurrency}",
               flush=True)
 
 
-async def check_all(records, concurrency=CONCURRENCY, skip=()):
+async def check_all(records, concurrency=0, skip=(), speedtest=True):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
     skip: iterable of (ip, port) known-dead proxies to not probe.
+    concurrency 0 = derive from a speedtest (mbps * 2, clamped).
     returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
     dropped from alive_records; outcomes is [(ip, port, alive, rt_ms|None)]
     for everything actually checked"""
+    import random
+
     skip_set = set(skip)
     if skip_set:
         before = len(records)
@@ -213,8 +240,17 @@ async def check_all(records, concurrency=CONCURRENCY, skip=()):
         skipped = before - len(records)
     else:
         skipped = 0
+    # shuffle so dead-heavy source clusters don't skew the running rate/eta
+    random.shuffle(records)
     c = Checker()
     await c.calibrate()
+    if not concurrency:
+        mbps = await c.measure_mbps() if speedtest else 0.0
+        concurrency = (max(CONCURRENCY_MIN, min(CONCURRENCY_MAX, round(mbps * 2)))
+                       if mbps else CONCURRENCY)
+    print(f"concurrency={concurrency}"
+          + (f" (measured {c.mbps:.0f} mbps)" if c.mbps else " (default)"),
+          flush=True)
     sem = asyncio.Semaphore(concurrency)
 
     counters = {"checked": 0, "alive": 0, "dead": 0}
@@ -229,7 +265,7 @@ async def check_all(records, concurrency=CONCURRENCY, skip=()):
         return ok
 
     reporter = asyncio.ensure_future(
-        _progress_reporter(len(records), counters))
+        _progress_reporter(len(records), counters, concurrency=concurrency))
     try:
         results = await asyncio.gather(*[run(r) for r in records])
     finally:
