@@ -186,8 +186,7 @@
     },
     {
       "name": "proxyscrape",
-      "url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=get_proxies&proxy_format=protocolipport&format=json",
-      "fallback_url": "https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.json",
+      "url": "https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.json",
       "format": "json",
       "extract": {
         "root": "proxies",
