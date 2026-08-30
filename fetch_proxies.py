@@ -206,6 +206,49 @@ def sort_records(records):
     ))
 
 
+def _source_link_names(sources):
+    """home/display fallbacks: github sources get repo links + owner/repo names,
+    others get their domain. colliding repos get disambiguated with the file stem."""
+    from collections import Counter
+    from urllib.parse import urlparse
+
+    def repo_of(url):
+        p = urlparse(url or "")
+        parts = [x for x in p.path.split("/") if x]
+        if p.netloc in ("raw.githubusercontent.com", "github.com"):
+            if parts and parts[0] == "wiki":  # wiki repos: /wiki/owner/repo/...
+                parts = parts[1:]
+            return (parts[0], parts[1]) if len(parts) >= 2 else None
+        if p.netloc == "cdn.jsdelivr.net" and parts[:1] == ["gh"]:
+            return (parts[1], parts[2]) if len(parts) >= 3 else None
+        return None
+
+    repos = {s["name"]: r for s in sources if (r := repo_of(s.get("url")))}
+    counts = Counter(repos.values())
+
+    home, display = {}, {}
+    for s in sources:
+        name = s["name"]
+        link = s.get("home")
+        label = s.get("display")
+        r = repos.get(name)
+        if r:
+            owner, repo = r
+            link = link or f"https://github.com/{owner}/{repo}"
+            if not label:
+                label = f"{owner}/{repo}"
+                if counts[r] > 1:
+                    stem = (s.get("url") or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                    label = f"{label} ({stem})"
+        if not link:
+            host = urlparse(s.get("url") or "").netloc.removeprefix("www.")
+            link = f"https://{host}" if host else None
+            label = label or host or name
+        home[name] = link
+        display[name] = label
+    return home, display
+
+
 def _html_table(headers, rows):
     cell = 'style="border:1px solid #30363d; padding:3px 8px; text-align:left"'
     th = "".join(f"<th {cell}><b>{h}</b></th>" for h in headers)
@@ -306,7 +349,7 @@ def write_outputs(records, fetched_per_source=None, sources=None):
                 rl = r.get("reliability")
                 for s in r.get("sources", []):
                     a = agg.setdefault(s, {"alive": 0, "rts": [], "rels": [],
-                                           "countries": Counter(), "ports": Counter()})
+                                           "countries": Counter()})
                     a["alive"] += 1
                     rt = r.get("response_time_ms")
                     if rt:
@@ -314,15 +357,13 @@ def write_outputs(records, fetched_per_source=None, sources=None):
                     a["rels"].append(rl)
                     if r.get("country"):
                         a["countries"][r["country"]] += 1
-                    a["ports"][r["port"]] += 1
-            home = {s["name"]: s.get("home") for s in sources}
-            display = {s["name"]: s.get("display") or s["name"] for s in sources}
+            home, display = _source_link_names(sources)
             names = list(display) or sorted(fetched_per_source)
             rows = []
             for s in names:
                 fetched = fetched_per_source.get(s, 0)
                 a = agg.get(s, {"alive": 0, "rts": [], "rels": [],
-                                "countries": Counter(), "ports": Counter()})
+                                "countries": Counter()})
                 alive = a["alive"]
                 pct = round(100 * alive / fetched) if fetched else 0
                 avg_rt = round(sum(a["rts"]) / len(a["rts"])) if a["rts"] else 0
@@ -332,13 +373,9 @@ def write_outputs(records, fetched_per_source=None, sources=None):
                 rel_pct = _reliability_pct(rel if a["rels"] else None)
                 speed = _speed_pct(avg_rt)
                 quality = round(0.5 * pct + 0.3 * speed + 0.2 * rel_pct)
-                if s == "proxypool":
-                    # every proxy here passed a full check this run; keep it on top
-                    quality = 100
                 top_countries = ", ".join(c for c, _ in a["countries"].most_common(2)) or "?"
-                top_port = a["ports"].most_common(1)[0][0] if a["ports"] else "?"
                 rows.append((quality, alive, s, fetched, pct, rel_pct, f"{avg_rt}ms",
-                             top_countries, str(top_port)))
+                             top_countries))
             rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
             srows = []
             for i, x in enumerate(rows):
@@ -348,10 +385,10 @@ def write_outputs(records, fetched_per_source=None, sources=None):
                 if i == 0:  # bold the #1 source
                     cell = f"<b>{cell}</b>"
                 srows.append([cell, f"{x[0]}", f"{x[4]}%", f"{x[5]}%", x[6],
-                              x[3], x[1], x[7], x[8]])
+                              x[3], x[1], x[7]])
             source_table = _html_table(
                 ["source", "quality", "success", "reliability", "avg rt",
-                 "fetched", "alive", "top countries", "top port"],
+                 "fetched", "alive", "top countries"],
                 srows)
             t = re.sub(r"<!-- sources:start -->.*?<!-- sources:end -->",
                        f"<!-- sources:start -->\n{source_table}\n<!-- sources:end -->",
