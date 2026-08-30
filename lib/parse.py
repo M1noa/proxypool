@@ -115,9 +115,17 @@ def _extract_json(items, ex):
         out = {}
         for field in ("ip", "port", "protocol", "protocols", "country",
                       "country_name", "anonymity", "https", "response_time"):
-            path = ex.get(field)
-            if path:
-                out[field] = dig(it, path)
+            spec = ex.get(field)
+            if not spec:
+                continue
+            if isinstance(spec, dict):
+                # {"path": dotted, "map": {"raw": "normalized"}}
+                v = dig(it, spec.get("path") or "")
+                if spec.get("map") is not None:
+                    v = spec["map"].get(str(v))
+                out[field] = v
+            else:
+                out[field] = dig(it, spec)
         for mk, mv in (ex.get("source_meta") or {}).items():
             out[f"meta_{mk}"] = dig(it, mv)
         yield out
@@ -189,12 +197,19 @@ def _extract_html(html_text, ex):
         yield out
 
 
-def parse_content(src, content):
-    """parse fetched content per source config -> list of normalized records"""
+def parse_content(src, content, defaults=None):
+    """parse fetched content per source config -> list of normalized records.
+    defaults: per-entry const fields (from urls entries) merged under extracted values"""
     fmt = src.get("format", "text")
     ex = src.get("extract", {})
     proto = src.get("protocol")
     recs = []
+
+    def _merge(r):
+        if not defaults:
+            return r
+        # extracted values win, but empty values never clobber a set default
+        return {**defaults, **{k: v for k, v in r.items() if v not in (None, "")}}
 
     if fmt == "json":
         import json as _json
@@ -207,7 +222,7 @@ def parse_content(src, content):
             items = [items]
         raws = _extract_json(items, ex)
         for r in raws:
-            rec = _norm_record(r, src, proto)
+            rec = _norm_record(_merge(r), src, proto)
             if rec:
                 recs.append(rec)
 
@@ -228,7 +243,7 @@ def parse_content(src, content):
                 "protocol": g.get("proto"),
                 "meta_country": g.get("country"),
             }
-            rec = _norm_record(r, src, proto)
+            rec = _norm_record(_merge(r), src, proto)
             if rec:
                 # hideip-style trailing country is a NAME not ISO code
                 if g.get("country") and not rec["country"]:
@@ -264,12 +279,12 @@ def parse_content(src, content):
             if not isinstance(items, list):
                 items = [items] if items else []
             for r in _extract_json(items, ex):
-                rec = _norm_record(r, src, proto)
+                rec = _norm_record(_merge(r), src, proto)
                 if rec:
                     recs.append(rec)
             return recs
         for r in _extract_html(content, ex):
-            rec = _norm_record(r, src, proto)
+            rec = _norm_record(_merge(r), src, proto)
             if rec:
                 recs.append(rec)
 
@@ -316,9 +331,14 @@ def _run_prefetch(src, session):
     return url, headers
 
 
-def fetch_source(src, timeout=None, max_pages_default=20):
-    """fetch all pages of a source -> (records, errors[])"""
-    timeout = timeout or src.get("timeout", 30)
+def fetch_source(src, timeout=None, max_pages_default=20, state=None):
+    """fetch all entries/pages of a source -> (records, errors[])
+
+    state: optional shared dict for watchdog reporting; updated with
+    page / requests / url as the fetch progresses."""
+    import time
+
+    timeout = timeout or src.get("timeout", 12)
     if src.get("flow"):
         from .flows import FLOWS
 
@@ -327,6 +347,7 @@ def fetch_source(src, timeout=None, max_pages_default=20):
         except Exception as e:
             return [], [f"{src['name']}: flow '{src['flow']}' failed: {e}"]
 
+    deadline = time.monotonic() + src.get("budget_s", 80)
     recs = []
     errors = []
     pag = src.get("pagination")
@@ -336,86 +357,102 @@ def fetch_source(src, timeout=None, max_pages_default=20):
     body_type = src.get("body_type")
     extra_headers = {}
 
-    url_template = src["url"]
+    # multi-entry sources: [{"url": ..., "set": {field: const}}, ...]
+    entries = [dict(e) for e in src["urls"]] if src.get("urls") else [{"url": src["url"]}]
+
     if src.get("prefetch"):
         try:
-            url_template, extra_headers = _run_prefetch(src, session)
+            entries[0]["url"], extra_headers = _run_prefetch(src, session)
         except Exception as e:
             return [], [f"{src['name']}: prefetch failed: {e}"]
 
-    def fetch_once(url):
-        return request(url, method=method, body=body, body_type=body_type,
-                       timeout=timeout, session=session,
+    def fetch_once(url, page_body=None):
+        if state is not None:
+            state["requests"] = state.get("requests", 0) + 1
+            state["url"] = url
+        return request(url, method=method,
+                       body=body if page_body is None else page_body,
+                       body_type=body_type, timeout=timeout, session=session,
                        headers=extra_headers or None)
 
-    urls = [url_template]
-    if src.get("fallback_url"):
-        urls.append(src["fallback_url"])
+    for entry in entries:
+        url_template = entry["url"]
+        defaults = entry.get("set")
+        # legacy sources: paginate whenever configured; urls entries: only when templated
+        paged = bool(pag) if not src.get("urls") else (
+            bool(pag) and ("{page}" in url_template or "{offset}" in url_template))
 
-    if not pag:
-        content = None
-        for i, url in enumerate(urls):
-            try:
-                content = fetch_once(url)
+        if not paged:
+            urls = [url_template]
+            if entry is entries[0] and src.get("fallback_url"):
+                urls.append(src["fallback_url"])
+            content = None
+            for i, url in enumerate(urls):
+                try:
+                    content = fetch_once(url)
+                    break
+                except Exception as e:
+                    if i == len(urls) - 1:
+                        errors.append(f"{src['name']}: fetch failed: {e}")
+            if content is not None:
+                try:
+                    recs.extend(parse_content(src, content, defaults))
+                except Exception as e:
+                    errors.append(f"{src['name']}: parse failed: {e}")
+            continue
+
+        page = pag.get("start", 1)
+        step = pag.get("step", 1)
+        max_pages = pag.get("max_pages", max_pages_default)
+        delay = pag.get("delay_ms", 0) / 1000.0
+        total_path = pag.get("total_path")
+        pages_path = pag.get("pages_path")
+        limit = pag.get("limit", 100)
+
+        n = 0
+        while n < max_pages:
+            if time.monotonic() > deadline:
+                errors.append(f"{src['name']}: budget exceeded at page {page}")
                 break
-            except Exception as e:
-                if i == len(urls) - 1:
-                    errors.append(f"{src['name']}: fetch failed: {e}")
-        if content is not None:
+            url = url_template.replace("{page}", str(page)).replace("{offset}", str(page))
+            page_body = body
+            if isinstance(body, dict):
+                page_body = {k: (page if isinstance(v, str) and v in ("{page}", "{offset}")
+                                 else v) for k, v in body.items()}
+            if delay:
+                time.sleep(delay)
             try:
-                recs = parse_content(src, content)
+                # request() already retries 429/5xx/conn errors with backoff
+                content = fetch_once(url, page_body)
             except Exception as e:
-                errors.append(f"{src['name']}: parse failed: {e}")
-        return recs, errors
-
-    ptype = pag.get("type", "page")
-    page = pag.get("start", 1)
-    step = pag.get("step", 1)
-    max_pages = pag.get("max_pages", max_pages_default)
-    delay = pag.get("delay_ms", 0) / 1000.0
-    total_path = pag.get("total_path")
-    limit = pag.get("limit", 100)
-
-    n = 0
-    while n < max_pages:
-        url = url_template.replace("{page}", str(page)).replace("{offset}", str(page))
-        page_body = body
-        if isinstance(body, dict):
-            page_body = {k: (page if isinstance(v, str) and v in ("{page}", "{offset}")
-                             else v) for k, v in body.items()}
-        content = None
-        if delay:
-            import time
-
-            time.sleep(delay)
-        try:
-            # request() already retries 429/5xx/conn errors with backoff
-            content = request(url, method=method, body=page_body,
-                              body_type=body_type, timeout=timeout,
-                              session=session,
-                              headers=extra_headers or None)
-        except Exception as e:
-            errors.append(f"{src['name']} page={page}: fetch failed: {e}")
-        if content is None:
-            break
-        # recompute total pages from server-reported total on the first page
-        if n == 0 and total_path:
+                errors.append(f"{src['name']} page={page}: fetch failed: {e}")
+                break
+            # recompute page count from server response on the first page
+            if n == 0 and total_path:
+                try:
+                    total = dig(_json.loads(content), total_path)
+                    if total:
+                        max_pages = max(1, math.ceil(int(total) / int(limit)))
+                except Exception:
+                    pass
+            elif n == 0 and pages_path:
+                try:
+                    pages = dig(_json.loads(content), pages_path)
+                    if pages:
+                        max_pages = min(max_pages, max(1, int(pages)))
+                except Exception:
+                    pass
             try:
-                doc = _json.loads(content)
-                total = dig(doc, total_path)
-                if total:
-                    max_pages = max(1, math.ceil(int(total) / int(limit)))
-            except Exception:
-                pass
-        try:
-            batch = parse_content(src, content)
-        except Exception as e:
-            errors.append(f"{src['name']} page={page}: parse failed: {e}")
-            break
-        if not batch:
-            break
-        recs.extend(batch)
-        page += step
-        n += 1
+                batch = parse_content(src, content, defaults)
+            except Exception as e:
+                errors.append(f"{src['name']} page={page}: parse failed: {e}")
+                break
+            if not batch:
+                break
+            recs.extend(batch)
+            if state is not None:
+                state["page"] = page
+            page += step
+            n += 1
 
     return recs, errors
