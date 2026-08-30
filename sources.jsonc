@@ -258,18 +258,6 @@
       "includes": []
     },
     {
-      "name": "argh94-https",
-      "display": "Argh94/Proxy-List \u00b7 https",
-      "home": "https://github.com/Argh94/Proxy-List",
-      "url": "https://raw.githubusercontent.com/Argh94/Proxy-List/refs/heads/main/HTTPS.txt",
-      "format": "text",
-      "protocol": "https",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
       "name": "argh94-socks4",
       "display": "Argh94/Proxy-List \u00b7 socks4",
       "home": "https://github.com/Argh94/Proxy-List",
@@ -1403,18 +1391,6 @@
       "includes": []
     },
     {
-      "name": "databay-https",
-      "display": "databay-labs https",
-      "home": "https://github.com/databay-labs/free-proxy-list",
-      "url": "https://cdn.jsdelivr.net/gh/databay-labs/free-proxy-list/https.txt",
-      "format": "text",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "protocol": "https",
-      "includes": []
-    },
-    {
       "name": "dpangestuw",
       "display": "dpangestuw/Free-Proxy",
       "home": "https://github.com/dpangestuw/Free-Proxy",
@@ -1932,35 +1908,96 @@
       "flow": "sixsixdaili"
     },
     {
+      "name": "goodips",
+      "display": "goodips.com",
+      "home": "https://www.goodips.com/",
+      // the json api (api.goodips.com) is the preferred feed but was dead
+      // (connection reset) at the time of adding; scrape the html tables instead
+      "url": "https://www.goodips.com/?page={page}&size=15000",
+      "format": "html",
+      "antibot": true,
+      "country": "CN",
+      "extract": {
+        "row_selector": "div.table-list ul",
+        "ip": "li:nth-child(1)",
+        "port": "li:nth-child(2)",
+        "anonymity": "li:nth-child(4)",
+        "protocol": "li:nth-child(5)",
+        "response_time": "li:nth-child(6)",
+        "source_meta": {"region": "li:nth-child(3)"}
+      },
+      "pagination": {"type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 3}
+    },
+    {
       "name": "myproxy",
       "display": "my-proxy.com",
       "home": "https://www.my-proxy.com/",
-      "flow": "myproxy"
+      "format": "text",
+      "protocol": "http",
+      "extract": {
+        "regex": "(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})#(?P<country>[A-Z]{2})",
+        "finditer": true
+      },
+      "urls": [
+        {"url": "https://www.my-proxy.com/free-proxy-list-{page}.html"},
+        {"url": "https://www.my-proxy.com/free-elite-proxy.html", "set": {"anonymity": "elite"}},
+        {"url": "https://www.my-proxy.com/free-anonymous-proxy.html", "set": {"anonymity": "anonymous"}},
+        {"url": "https://www.my-proxy.com/free-transparent-proxy.html", "set": {"anonymity": "transparent"}},
+        {"url": "https://www.my-proxy.com/free-socks-4-proxy.html", "set": {"protocol": "socks4", "anonymity": "elite"}},
+        {"url": "https://www.my-proxy.com/free-socks-5-proxy.html", "set": {"protocol": "socks5", "anonymity": "elite"}}
+      ],
+      "pagination": {"type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 10}
     },
     {
       "name": "iproyal",
       "display": "iproyal.com",
       "home": "https://iproyal.com/",
-      "flow": "iproyal"
+      // static public token lifted from the site's frontend
+      "url": "https://cms.iproyal.com/api/free-proxy-records?fields[0]=ip&fields[1]=port&fields[2]=protocol&fields[3]=country&pagination[page]={page}&pagination[pageSize]=100",
+      "format": "json",
+      "headers": {
+        "authorization": "Bearer c07d9ce184008ff4be5ab6afa6a67a7513e5ece56e43b60ad1ddb0b86f952318e1ebebf54825bccb6191da8ad135cc29c963ce3f1c46dc4ad8364440333d6bee44ae20e3f0e63c29d3c5139c35f84b70d88b4e5de1e2f25cf07dca5d40fa5c0fa093490a5919e3269f2fa853776c59642c50b0cfc761c7f3943edd1908605661",
+        "origin": "https://iproyal.com",
+        "referer": "https://iproyal.com/"
+      },
+      "extract": {
+        "root": "data",
+        "ip": "ip",
+        "port": "port",
+        "protocol": "protocol",
+        "country": "country"
+      },
+      "pagination": {"type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 3}
     },
     {
       "name": "proxyshare",
-      "display": "proxyshare (freeproxy flow)",
+      "display": "proxyshare",
       "home": "https://www.proxyshare.com/",
-      "flow": "proxyshare"
+      "url": "https://www.proxyshare.com/fetch-proxy/free?page_size=15000&page={page}&language=en-us",
+      "format": "json",
+      "extract": {
+        "root": "data.list",
+        "ip": "ip",
+        "port": "port",
+        "protocol": {"path": "protocol", "map": {"1": "http", "2": "https", "4": "socks4", "8": "socks5"}},
+        "country": "country_code",
+        "anonymity": {"path": "anonymity", "map": {"2": "elite", "1": "anonymous", "0": "transparent"}}
+      },
+      "pagination": {"type": "page", "start": 1, "step": 1, "pages_path": "data.page_count", "max_pages": 10}
     },
     {
       "name": "proxynova",
       "display": "proxynova (freeproxy flow)",
-      "home": "https://github.com/CharlesPikachu/freeproxy",
+      "home": "https://www.proxynova.com/proxy-server-list/",
       "flow": "proxynova"
     },
-    {
-      "name": "spysone",
-      "display": "spys.one (freeproxy flow)",
-      "home": "https://github.com/CharlesPikachu/freeproxy",
-      "flow": "spysone"
-    },
+    // spysone disabled: cloudflare pow challenge blocks the fetch
+    // {
+    //   "name": "spysone",
+    //   "display": "spys.one (freeproxy flow)",
+    //   "home": "https://spys.one/en/free-proxy-list/",
+    //   "flow": "spysone"
+    // },
     {
       "name": "proxyhub",
       "display": "proxyhub (freeproxy flow)",
@@ -1971,24 +2008,12 @@
       "name": "proxypool",
       "display": "proxypool (this repo)",
       "home": "https://github.com/M1noa/proxypool",
-      "url": "https://raw.githubusercontent.com/M1noa/proxypool/main/output/proxies.json",
-      "format": "json",
+      "url": "https://raw.githubusercontent.com/M1noa/proxypool/main/output/all.txt",
+      "format": "text",
       "extract": {
-        "root": "",
-        "ip": "ip",
-        "port": "port",
-        "protocols": "protocols",
-        "country": "country",
-        "anonymity": "anonymity",
-        "https": "https",
-        "response_time": "response_time_ms"
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
       },
-      "includes": [
-        "country",
-        "anonymity",
-        "https",
-        "protocols"
-      ]
+      "protocol": "http"
     }
   ]
 }
