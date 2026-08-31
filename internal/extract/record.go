@@ -10,8 +10,9 @@ import (
 	"github.com/M1noa/proxypool/internal/config"
 )
 
-// Record is one normalized proxy. the fields the checker and scorer add live
-// in the packages that add them; this is what a source alone can produce.
+// Record is one normalized proxy. history and output add their own fields in
+// their own packages; the checker's fields live here because internal/output
+// needs them alongside everything a source alone can produce.
 type Record struct {
 	IP           string
 	IPVersion    string
@@ -27,6 +28,11 @@ type Record struct {
 
 	// fields the source vouches for, so the checker leaves them alone
 	Provided map[string]bool
+
+	// filled by internal/check
+	LastChecked       *string
+	ResponseTimeMS    *int
+	ResponseTimeRawMS *int
 }
 
 // Key is the ip:port identity records are merged and stored under.
