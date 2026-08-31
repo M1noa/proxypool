@@ -27,9 +27,9 @@ var (
 	reProtoSplit  = regexp.MustCompile(`[/,|` + pySpace + `]+`)
 )
 
-// pyStrip is str.strip(). go's strings.TrimSpace uses unicode.IsSpace, which
+// PyStrip is str.strip(). go's strings.TrimSpace uses unicode.IsSpace, which
 // is missing \x1c-\x1f — python counts those four separators as whitespace.
-func pyStrip(s string) string {
+func PyStrip(s string) string {
 	return strings.TrimFunc(s, isPySpace)
 }
 
@@ -40,8 +40,8 @@ func isPySpace(r rune) bool {
 	return unicode.IsSpace(r)
 }
 
-// dig is a dotted path lookup. an empty path returns obj unchanged.
-func dig(obj any, path string) any {
+// Dig is a dotted path lookup. an empty path returns obj unchanged.
+func Dig(obj any, path string) any {
 	cur := obj
 	for _, part := range strings.Split(path, ".") {
 		if part == "" {
@@ -60,9 +60,9 @@ func dig(obj any, path string) any {
 	return cur
 }
 
-// truthy is python's `if v`. json.Number is checked numerically: it is a
+// Truthy is python's `if v`. json.Number is checked numerically: it is a
 // defined string type, so a `case string` arm would never see it.
-func truthy(v any) bool {
+func Truthy(v any) bool {
 	switch t := v.(type) {
 	case nil:
 		return false
@@ -85,8 +85,8 @@ func truthy(v any) bool {
 	return true
 }
 
-// pystr is python's str() for the types json decoding produces.
-func pystr(v any) string {
+// PyStr is python's str() for the types json decoding produces.
+func PyStr(v any) string {
 	switch t := v.(type) {
 	case nil:
 		return "None"
@@ -115,10 +115,10 @@ func pystr(v any) string {
 
 // strOr is `str(v or "")`, the shape every string read in _norm_record takes.
 func strOr(v any) string {
-	if !truthy(v) {
+	if !Truthy(v) {
 		return ""
 	}
-	return pystr(v)
+	return PyStr(v)
 }
 
 // pyNumber is isinstance(v, (int, float)) plus the value. python's bool is an
@@ -146,20 +146,20 @@ func toBool(v any) bool {
 	if b, ok := v.(bool); ok {
 		return b
 	}
-	switch strings.ToLower(pyStrip(strOr(v))) {
+	switch strings.ToLower(PyStrip(strOr(v))) {
 	case "true", "yes", "1":
 		return true
 	case "false", "no", "0", "", "none":
 		return false
 	}
-	return truthy(v)
+	return Truthy(v)
 }
 
 // normalizeAnon ports lib/util.normalize_anon. order matters: "high" wins
 // over "transparent", and the "not" guard keeps "not anonymous" out of the
 // anonymous bucket.
 func normalizeAnon(v any) string {
-	s := strings.ToLower(pyStrip(strOr(v)))
+	s := strings.ToLower(PyStrip(strOr(v)))
 	switch {
 	case strings.Contains(s, "elite"), strings.Contains(s, "high"),
 		s == "ha", s == "高匿":
@@ -182,7 +182,7 @@ func normalizeAnon(v any) string {
 // parseProtocol splits a protocol-ish value into known protocols.
 func parseProtocol(v any) []string {
 	var out []string
-	for _, p := range reProtoSplit.Split(strings.ToLower(pyStrip(strOr(v))), -1) {
+	for _, p := range reProtoSplit.Split(strings.ToLower(PyStrip(strOr(v))), -1) {
 		switch p {
 		case "http", "https", "socks4", "socks5":
 			out = append(out, p)

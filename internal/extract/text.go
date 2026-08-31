@@ -48,7 +48,7 @@ func extractText(content string, ex *config.Extract) ([]map[string]any, error) {
 		return nil, err
 	}
 	for _, line := range pySplitLines(content) {
-		if m := re.FindStringSubmatch(pyStrip(line)); m != nil {
+		if m := re.FindStringSubmatch(PyStrip(line)); m != nil {
 			add(groupDict(re, m))
 		}
 	}

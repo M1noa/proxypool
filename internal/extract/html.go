@@ -122,7 +122,7 @@ func cellText(row *goquery.Selection, sel config.Spec) (string, error) {
 		}
 		val = reverseRunes(s)
 	}
-	return pyStrip(val), nil
+	return PyStrip(val), nil
 }
 
 func group1(re *regexp.Regexp, hay string) []string {
@@ -152,7 +152,7 @@ func collectText(n *html.Node, out *[]string) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
 		case html.TextNode:
-			if t := pyStrip(c.Data); t != "" {
+			if t := PyStrip(c.Data); t != "" {
 				*out = append(*out, t)
 			}
 		case html.ElementNode:
