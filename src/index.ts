@@ -1,5 +1,5 @@
 // entrypoint: route, cache, error boundary.
-// static assets (/, /docs.json, /style.css...) are served by worker assets;
+// static assets (/, /docs.json, /style.css, ...) are served by worker assets;
 // only /list is handled here.
 
 import {
@@ -99,7 +99,7 @@ export default {
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         }
-        return new Response("not found. see /docs\n", {
+        return new Response("not found. see /docs.json\n", {
           status: 404,
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         });

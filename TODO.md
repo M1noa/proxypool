@@ -17,8 +17,8 @@
 - [x] bare /list returns full proxies.json untouched
 - [x] shortcut routes /<name>.<ext> + aliases (anon, edu, gov)
 - [x] ui collapses selections to the shortest equivalent url
-- [x] public/docs.html — human api docs at /docs
 - [x] docs.json shortcuts section
+- [x] removed public/docs.html + /docs route — docs.json is the only spec
 - [x] 404.html served to browsers, plain text to scripts
 - [x] tsc --noEmit clean
 - [x] wrangler dev + curl test matrix (every filter, format, error)

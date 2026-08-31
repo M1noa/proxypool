@@ -13,7 +13,6 @@ GET /list        the api. filters -> sort -> limit -> render
                  bare /list with no params returns the full upstream
                  proxies.json untouched (application/json)
 GET /<name>.<ext>  shortcut routes, e.g. /socks5.txt, /elite.json, /edu.csv
-GET /docs        human api docs (static asset docs.html)
 GET /docs.json   machine-readable api spec (static asset)
 /style.css /script.js /noise.png   static assets
 unknown paths    404.html for browsers, one plain-text line for scripts
@@ -123,10 +122,6 @@ copy + open. with js on, the preview collapses to the shortest equivalent route
 and submit navigates there. with js off the native GET form still posts to
 `/list` with the long query string, which returns the same data.
 
-`/docs` (public/docs.html) is the human version of docs.json: endpoint, shortcut
-table, every param, formats with sample output, error shapes, response headers,
-example urls. same flat bands, no cards.
-
 ## files
 
 ```
@@ -138,7 +133,7 @@ src/params.ts    query parse/validate -> normalized spec
 src/filter.ts    filter/sort/limit
 src/render.ts    txt/json/jsonl/csv + in-format errors
 src/data.ts      upstream fetch + dataset cache
-public/          index.html docs.html 404.html style.css script.js
+public/          index.html 404.html style.css script.js
                  noise.png docs.json
 ```
 

@@ -439,27 +439,6 @@ a:hover { color: var(--link-hover); }
 
 .copy-success { animation: copyPop 0.4s var(--ease-polish) !important; }
 
-/* docs page: no sticky bar, so no clearance needed */
-.container-docs { padding-bottom: 2.5rem; }
-
-.band h3 {
-    color: var(--text-bright);
-    font-size: 0.88rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    margin: 1.6rem 0 0.7rem;
-}
-
-.prose {
-    color: var(--text);
-    font-size: 0.92rem;
-    max-width: 68ch;
-    margin-bottom: 0.85rem;
-}
-
-.prose:last-child { margin-bottom: 0; }
-
 code {
     font-family: 'Geist Mono', monospace;
     font-size: 0.85em;
@@ -470,91 +449,6 @@ code {
 }
 
 code a { text-decoration: none; }
-
-/* spec tables -- rows separated by hairlines, no box around them */
-.table-scroll { overflow-x: auto; margin: 0.4rem 0 1rem; }
-
-table.spec {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.86rem;
-}
-
-table.spec th {
-    text-align: left;
-    color: var(--text-muted);
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 0 0.9rem 0.5rem 0;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-}
-
-table.spec td {
-    padding: 0.55rem 0.9rem 0.55rem 0;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
-    color: var(--text);
-}
-
-table.spec tr:last-child td { border-bottom: none; }
-
-table.spec td:first-child {
-    font-family: 'Geist Mono', monospace;
-    color: var(--text-bright);
-    white-space: nowrap;
-}
-
-table.spec td:first-child code { background: none; padding: 0; }
-
-table.spec em {
-    font-style: normal;
-    color: var(--text-muted);
-}
-
-table.spec tbody tr {
-    transition: background-color 0.15s var(--ease-snappy);
-}
-
-table.spec tbody tr:hover { background-color: var(--card-bg); }
-
-/* sample output blocks */
-pre.sample {
-    font-family: 'Geist Mono', monospace;
-    font-size: 0.8rem;
-    line-height: 1.65;
-    color: var(--text-bright);
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 0.9rem 1rem;
-    margin-bottom: 1rem;
-    overflow-x: auto;
-    white-space: pre;
-    transition: border-color 0.18s var(--ease-snappy);
-}
-
-pre.sample:hover { border-color: var(--hover-border); }
-
-.examples {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-    font-size: 0.86rem;
-    color: var(--text-muted);
-}
-
-.examples a {
-    font-family: 'Geist Mono', monospace;
-    text-decoration: none;
-    border-bottom: 1px solid var(--border);
-    transition: border-color 0.18s var(--ease-snappy), color 0.18s var(--ease-snappy);
-}
-
-.examples a:hover { border-color: var(--hover-border); }
 
 /* footer */
 footer {
