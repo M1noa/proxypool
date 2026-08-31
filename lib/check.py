@@ -37,6 +37,17 @@ async def _fetch(session, url, proxy=None):
 _ABANDONED = set()  # keep refs so the gc doesn't collect / warn on them
 
 
+def _drop(task):
+    """release an abandoned task and swallow whatever it ended with.
+
+    a cancel mid-request often surfaces as aiohttp's TimeoutError rather than
+    CancelledError, and nobody is left to await it — reading .exception() here
+    stops asyncio logging a full traceback per abandoned probe."""
+    _ABANDONED.discard(task)
+    if not task.cancelled():
+        task.exception()
+
+
 async def _bounded(coro, timeout):
     """run coro under a cap that always returns, raising TimeoutError.
 
@@ -49,7 +60,7 @@ async def _bounded(coro, timeout):
     if not done:
         task.cancel()
         _ABANDONED.add(task)
-        task.add_done_callback(_ABANDONED.discard)
+        task.add_done_callback(_drop)
         raise asyncio.TimeoutError
     return task.result()
 
