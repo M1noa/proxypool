@@ -26,6 +26,11 @@ jobs:
       - name: install deps
         run: pip install -r requirements.txt
 
+      - name: setup-geoip
+        env:
+          GEOIP_LICENSE_KEY: ${{ secrets.GEOIP_LICENSE_KEY }}
+        run: python3 lib/geoip.py
+
       - name: restore history
         run: |
           mkdir -p output
