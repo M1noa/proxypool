@@ -124,9 +124,8 @@ func (f *Fetcher) maxPages() int {
 // Source fetches every entry and page of one source.
 //
 // failures come back as strings rather than errors because they are collected
-// across 150 sources and rendered into the readme verbatim. the formats are
-// load-bearing twice over: the readme's error column shows them, and the pool
-// decides whether to requeue a source by looking for "429" in them.
+// across 150 sources and printed as one block at the end of a run. one of them
+// is load-bearing: the pool requeues a source by looking for "429" in them.
 func (f *Fetcher) Source(ctx context.Context, src *config.Source, st *State) ([]*extract.Record, []string) {
 	timeout := f.Timeout
 	if timeout <= 0 {
