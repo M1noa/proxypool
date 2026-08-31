@@ -55,6 +55,11 @@ type Req struct {
 	BodyType string
 	Headers  map[string]string
 	Deadline time.Time
+	// Timeout caps one attempt, retries excluded, when non-zero. the client's
+	// own timeouts are per socket operation and fixed at construction; a flow
+	// recomputes its timeout per request as the source budget drains, which
+	// only this can express. the config-driven path leaves it zero.
+	Timeout time.Duration
 }
 
 // Get is the common case.
@@ -119,6 +124,14 @@ func (c *Client) Do(ctx context.Context, r Req) (string, error) {
 func (c *Client) once(ctx context.Context, method string, r Req, body []byte,
 	contentType string) (string, *http.Response, error) {
 
+	if r.Timeout > 0 {
+		// per attempt, so a retry after a timeout gets a full one of its own the
+		// way requests' timeout= does. the body is read before this returns, so
+		// cancelling here cannot truncate it.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.Timeout)
+		defer cancel()
+	}
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)

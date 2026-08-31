@@ -34,9 +34,12 @@ func (r *Record) Key() string {
 	return r.IP + ":" + strconv.Itoa(r.Port)
 }
 
-// normRecord ports lib/parse._norm_record. it returns nil where python
+// NormRecord ports lib/parse._norm_record. it returns nil where python
 // returns None: a bogus host, a localhost name, or a port that will not parse.
-func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Record {
+//
+// exported because internal/flows builds its raw maps by hand and normalizes
+// them through here.
+func NormRecord(raw map[string]any, src *config.Source, defaultProto string) *Record {
 	ip := PyStrip(strOr(raw["ip"]))
 	// a combined "ip:port" field. one colon only, so ipv6 is left alone.
 	if !Truthy(raw["port"]) && strings.Count(ip, ":") == 1 {

@@ -41,7 +41,7 @@ func ParseContent(src *config.Source, content string, defaults map[string]any) (
 
 	recs := make([]*Record, 0, len(raws))
 	for _, r := range raws {
-		rec := normRecord(merge(r, defaults), src, proto)
+		rec := NormRecord(merge(r, defaults), src, proto)
 		if rec == nil {
 			continue
 		}
@@ -110,7 +110,7 @@ func parseEmbedded(src *config.Source, content string, defaults map[string]any) 
 	}
 	recs := make([]*Record, 0, len(raws))
 	for _, r := range raws {
-		if rec := normRecord(merge(r, defaults), src, src.Protocol); rec != nil {
+		if rec := NormRecord(merge(r, defaults), src, src.Protocol); rec != nil {
 			recs = append(recs, rec)
 		}
 	}
