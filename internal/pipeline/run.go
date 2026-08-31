@@ -206,7 +206,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time) (
 	logf("checking %d proxies...", len(recs))
 	t0 := time.Now()
 	cctx, cancel := context.WithDeadline(ctx, tRun.Add(o.Budget))
-	alive, stats, outcomes, _ := check.CheckAll(cctx, recs, check.Options{
+	alive, stats, outcomes := check.CheckAll(cctx, recs, check.Options{
 		Concurrency: o.Concurrency,
 		Skip:        skips,
 		Speedtest:   !o.SkipSpeedtest,

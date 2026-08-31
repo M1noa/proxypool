@@ -47,8 +47,8 @@ func TestCheckAllSkipFiltering(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _, _, skipped := CheckAll(ctx, []*extract.Record{fullySkipped, kept}, opts)
-	if skipped != 1 {
-		t.Errorf("skipped = %d, want 1", skipped)
+	_, stats, _ := CheckAll(ctx, []*extract.Record{fullySkipped, kept}, opts)
+	if stats.Skipped != 1 {
+		t.Errorf("skipped = %d, want 1", stats.Skipped)
 	}
 }
