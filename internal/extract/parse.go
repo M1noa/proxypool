@@ -86,7 +86,7 @@ func parseEmbedded(src *config.Source, content string, defaults map[string]any) 
 		text := nodeString(el)
 		if re != nil {
 			m := re.FindStringSubmatch(text)
-			if m == nil || len(m) < 2 {
+			if len(m) < 2 {
 				return true
 			}
 			text = m[1]

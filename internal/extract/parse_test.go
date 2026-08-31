@@ -2,7 +2,9 @@ package extract
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,15 +17,15 @@ import (
 // ParseContent and compares against what lib/parse.parse_content produced for
 // the same bytes. it is the differential gate for the extraction port.
 //
-// fixtures are not committed — they are megabytes of scraped html and they go
-// stale. regenerate with tools/capture_fixtures.py, then point
-// PROXYPOOL_FIXTURES at the directory.
+// testdata/fixtures holds a gzipped capture so the gate keeps working after the
+// python is gone. regenerate with tools/capture_fixtures.py and point
+// PROXYPOOL_FIXTURES at the output to test against fresh bodies.
 func TestParseParity(t *testing.T) {
 	dir := os.Getenv("PROXYPOOL_FIXTURES")
 	if dir == "" {
 		dir = "testdata/fixtures"
 	}
-	expRaw, err := os.ReadFile(filepath.Join(dir, "expected.json"))
+	expRaw, err := readFixture(dir, "expected.json")
 	if err != nil {
 		t.Skipf("no fixtures in %s (set PROXYPOOL_FIXTURES): %v", dir, err)
 	}
@@ -53,7 +55,7 @@ func TestParseParity(t *testing.T) {
 			if !ok {
 				t.Fatalf("source %q not in sources.jsonc", name)
 			}
-			content, err := os.ReadFile(filepath.Join(dir, name+".raw"))
+			content, err := readFixture(dir, name+".raw")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,6 +74,21 @@ func TestParseParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// readFixture reads name, preferring a committed name.gz over a plain file left
+// by a fresh capture.
+func readFixture(dir, name string) ([]byte, error) {
+	if f, err := os.Open(filepath.Join(dir, name+".gz")); err == nil {
+		defer f.Close()
+		zr, err := gzip.NewReader(f)
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		return io.ReadAll(zr)
+	}
+	return os.ReadFile(filepath.Join(dir, name))
 }
 
 // recordMap renders a Record in the shape lib/parse emits, so the two can be
