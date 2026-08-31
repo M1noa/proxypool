@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProxyPool — proxies.minoa.cat</title>
+    <title>proxies.minoa.cat</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐱</text></svg>">
-    <meta name="description" content="fast filtered proxy lists, served from the edge. txt, json, csv. free, cached, updated hourly.">
+    <meta name="description" content="free proxy lists. txt, json, csv. updated hourly.">
     <meta name="author" content="M1noa">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#FFC0CB">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://proxies.minoa.cat/">
-    <meta property="og:title" content="ProxyPool — proxies.minoa.cat">
-    <meta property="og:description" content="fast filtered proxy lists, served from the edge. txt, json, csv. free, cached, updated hourly.">
+    <meta property="og:title" content="proxies.minoa.cat">
+    <meta property="og:description" content="free proxy lists. txt, json, csv. updated hourly.">
     <meta property="og:site_name" content="proxies.minoa.cat">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:creator" content="@M1noa">
@@ -25,15 +25,28 @@
     <div class="noise-bg"></div>
     <div class="container">
         <header>
-            <h1>ProxyPool</h1>
-            <p>fast filtered proxy lists, served from the edge</p>
+            <h1>proxies.minoa.cat</h1>
+            <p>free proxy lists, updated hourly</p>
         </header>
+
+        <nav class="presets" aria-label="presets">
+            <a href="/list">everything</a>
+            <a href="/http.txt">http.txt</a>
+            <a href="/https.txt">https.txt</a>
+            <a href="/socks4.txt">socks4.txt</a>
+            <a href="/socks5.txt">socks5.txt</a>
+            <a href="/elite.json">elite.json</a>
+            <a href="/anon.json">anon.json</a>
+            <a href="/transparent.txt">transparent.txt</a>
+            <a href="/isp.txt">isp.txt</a>
+            <a href="/edu.txt">edu.txt</a>
+        </nav>
 
         <main>
             <!-- the form works with js disabled: it submits a plain GET to /list -->
             <form id="generator" action="/list" method="get">
 
-                <section class="card">
+                <section class="band">
                     <h2>type</h2>
                     <div class="pills">
                         <input type="checkbox" id="t-http" name="type" value="http">
@@ -42,19 +55,19 @@
                         <label for="t-https">https</label>
                         <input type="checkbox" id="t-socks4" name="type" value="socks4">
                         <label for="t-socks4">socks4</label>
-                        <input type="checkbox" id="t-socks5" name="type" value="socks5" checked>
+                        <input type="checkbox" id="t-socks5" name="type" value="socks5">
                         <label for="t-socks5">socks5</label>
                     </div>
-                    <p class="hint">none selected = all types. txt shows <code>proto://ip:port</code> unless exactly one type is picked.</p>
+                    <p class="hint">none = all. txt shows <code>proto://ip:port</code> unless exactly one type is picked.</p>
                 </section>
 
-                <section class="card">
+                <section class="band">
                     <h2>format</h2>
                     <div class="pills">
-                        <input type="radio" id="f-txt" name="format" value="txt" checked>
-                        <label for="f-txt">txt</label>
-                        <input type="radio" id="f-json" name="format" value="json">
+                        <input type="radio" id="f-json" name="format" value="json" checked>
                         <label for="f-json">json</label>
+                        <input type="radio" id="f-txt" name="format" value="txt">
+                        <label for="f-txt">txt</label>
                         <input type="radio" id="f-csv" name="format" value="csv">
                         <label for="f-csv">csv</label>
                         <input type="radio" id="f-jsonl" name="format" value="jsonl">
@@ -62,7 +75,7 @@
                     </div>
                 </section>
 
-                <section class="card">
+                <section class="band">
                     <h2>anonymity</h2>
                     <div class="pills">
                         <input type="checkbox" id="a-elite" name="anonymity" value="elite">
@@ -76,9 +89,27 @@
                     </div>
                 </section>
 
-                <section class="card">
+                <section class="band">
+                    <h2>ip type</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="it-hosting" name="ip_type" value="hosting">
+                        <label for="it-hosting">hosting</label>
+                        <input type="checkbox" id="it-isp" name="ip_type" value="isp">
+                        <label for="it-isp">isp</label>
+                        <input type="checkbox" id="it-business" name="ip_type" value="business">
+                        <label for="it-business">business</label>
+                        <input type="checkbox" id="it-edu" name="ip_type" value="education_research">
+                        <label for="it-edu">education/research</label>
+                        <input type="checkbox" id="it-gov" name="ip_type" value="government_admin">
+                        <label for="it-gov">government/admin</label>
+                        <input type="checkbox" id="it-unk" name="ip_type" value="unknown">
+                        <label for="it-unk">unknown</label>
+                    </div>
+                </section>
+
+                <section class="band">
                     <h2>sort &amp; limit</h2>
-                    <div class="grid-2">
+                    <div class="fields">
                         <label class="field">sort
                             <select name="sort">
                                 <option value="response" selected>response time</option>
@@ -112,9 +143,9 @@
                     </div>
                 </section>
 
-                <section class="card">
+                <section class="band">
                     <h2>network</h2>
-                    <div class="grid-2">
+                    <div class="fields">
                         <label class="field">country (iso2, comma-sep)
                             <input type="text" name="country" placeholder="us, de, nl" autocapitalize="off" autocorrect="off" spellcheck="false">
                         </label>
@@ -144,29 +175,15 @@
                             <input type="text" name="source" placeholder="proxifly, hookzof" autocapitalize="off" autocorrect="off" spellcheck="false">
                         </label>
                     </div>
-                    <div class="pills" style="margin-top: 0.9rem">
-                        <input type="checkbox" id="it-hosting" name="ip_type" value="hosting">
-                        <label for="it-hosting">hosting</label>
-                        <input type="checkbox" id="it-isp" name="ip_type" value="isp">
-                        <label for="it-isp">isp</label>
-                        <input type="checkbox" id="it-business" name="ip_type" value="business">
-                        <label for="it-business">business</label>
-                        <input type="checkbox" id="it-edu" name="ip_type" value="education_research">
-                        <label for="it-edu">education/research</label>
-                        <input type="checkbox" id="it-gov" name="ip_type" value="government_admin">
-                        <label for="it-gov">government/admin</label>
-                        <input type="checkbox" id="it-unk" name="ip_type" value="unknown">
-                        <label for="it-unk">unknown</label>
-                    </div>
                 </section>
 
-                <section class="card">
+                <section class="band">
                     <h2>quality</h2>
-                    <div class="grid-2">
-                        <label class="field">min reliability (0–1)
+                    <div class="fields">
+                        <label class="field">min reliability (0-1)
                             <input type="number" name="min_reliability" min="0" max="1" step="0.05" placeholder="0">
                         </label>
-                        <label class="field">min quality (0–1)
+                        <label class="field">min quality (0-1)
                             <input type="number" name="min_quality" min="0" max="1" step="0.05" placeholder="0">
                         </label>
                         <label class="field">response min (ms)
@@ -184,17 +201,16 @@
                     </div>
                 </section>
 
-                <section class="card url-card">
-                    <h2>your url</h2>
-                    <code id="url-preview" class="url-preview">https://proxies.minoa.cat/list?type=socks5&amp;format=txt&amp;sort=response&amp;limit=0</code>
-                    <div class="url-actions">
+                <div class="url-bar">
+                    <div class="url-bar-inner">
+                        <code id="url-preview" class="url-preview">https://proxies.minoa.cat/list</code>
                         <button type="button" id="copy-btn" class="action-btn">copy</button>
                         <button type="submit" class="action-btn" id="open-btn">open</button>
                     </div>
                     <noscript>
-                        <p class="hint">javascript is off — the form still works, <strong>open</strong> takes you straight to your list. base url: <code>https://proxies.minoa.cat/list</code> · full spec: <a href="/docs.json">/docs.json</a></p>
+                        <p class="hint url-noscript">javascript is off, the form still works. <strong>open</strong> takes you straight to your list. base url: <code>https://proxies.minoa.cat/list</code> · docs: <a href="/docs">/docs</a></p>
                     </noscript>
-                </section>
+                </div>
             </form>
         </main>
 
@@ -203,9 +219,8 @@
                 <svg viewBox="0 0 16 16" fill="currentColor" height="1em" width="1em"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
                 <span>GitHub</span>
             </a>
-            <a href="/docs.json" class="footer-link">
-                <span>API Docs</span>
-            </a>
+            <a href="/docs" class="footer-link"><span>Docs</span></a>
+            <a href="/docs.json" class="footer-link"><span>JSON</span></a>
         </footer>
     </div>
 

@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- notifications ---
     const container = document.getElementById('notification-container');
     function notify(message, type = 'success') {
+        if (!container) return;
         const el = document.createElement('div');
         el.className = `notification ${type}`;
         el.textContent = message;
@@ -50,19 +51,61 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2600);
     }
 
-    // --- live url building ---
+    // --- live url building, collapsed to the shortest equivalent route ---
     const form = document.getElementById('generator');
     const preview = document.getElementById('url-preview');
     const copyBtn = document.getElementById('copy-btn');
 
+    // docs / 404 share this script but have no generator form
+    if (!form || !preview || !copyBtn) return;
+
+    // aliases the worker accepts for shortcut routes -- pick the shortest
+    const ALIASES = {
+        anonymous: 'anon',
+        education_research: 'edu',
+        government_admin: 'gov',
+    };
+
+    // fields that must all be unset for a shortcut route to apply
+    const REST_FIELDS = [
+        'order', 'https', 'country', 'port', 'port_min', 'port_max', 'asn',
+        'as_org', 'ip_version', 'source', 'min_reliability', 'min_quality',
+        'response_min', 'response_max', 'first_seen_after', 'last_seen_after',
+    ];
+
     function buildUrl() {
-        const params = new URLSearchParams();
+        const origin = window.location.origin;
         const data = new FormData(form);
+        const get = (key) => (data.get(key) || '').toString().trim();
+        const getAll = (key) => data.getAll(key).map(String).map((s) => s.trim()).filter(Boolean);
+
+        const types = getAll('type');
+        const anonymity = getAll('anonymity');
+        const ipTypes = getAll('ip_type');
+        const format = get('format') || 'json';
+
+        const sortDefault = get('sort') === '' || get('sort') === 'response';
+        const limitDefault = get('limit') === '' || get('limit') === '0';
+        const restDefault = sortDefault && limitDefault && REST_FIELDS.every((f) => get(f) === '');
+
+        if (restDefault) {
+            const dims = [types.length > 0, anonymity.length > 0, ipTypes.length > 0].filter(Boolean).length;
+            if (dims === 0) {
+                return format === 'json' ? `${origin}/list` : `${origin}/all.${format}`;
+            }
+            if (dims === 1) {
+                if (types.length === 1) return `${origin}/${types[0]}.${format}`;
+                if (anonymity.length === 1) return `${origin}/${ALIASES[anonymity[0]] || anonymity[0]}.${format}`;
+                if (ipTypes.length === 1) return `${origin}/${ALIASES[ipTypes[0]] || ipTypes[0]}.${format}`;
+            }
+        }
+
+        const params = new URLSearchParams();
         for (const [key, value] of data.entries()) {
             const v = String(value).trim();
             if (v !== '') params.append(key, v);
         }
-        return `${window.location.origin}/list?${params.toString()}`;
+        return `${origin}/list?${params.toString()}`;
     }
 
     function refresh() {
@@ -72,6 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
     form.addEventListener('input', refresh);
     form.addEventListener('change', refresh);
     refresh();
+
+    // js on: navigate straight to the (possibly shortcut) url instead of a
+    // plain GET submit, so /socks4.txt-style collapsing actually gets used
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        window.location.href = buildUrl();
+    });
 
     copyBtn.addEventListener('click', async () => {
         const url = buildUrl();

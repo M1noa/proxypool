@@ -1,4 +1,6 @@
-/* proxypool — design language lifted from crypto.minoa.cat, unused parts dropped */
+/* proxypool -- design language lifted from crypto.minoa.cat, unused parts dropped.
+   no card movement on hover: border/background/shadow/brightness only,
+   plus a diagonal shine sweep on pill-shaped links (crypto's signature). */
 @import url('https://fonts.googleapis.com/css2?family=Rubik+80s+Fade&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;700&display=swap');
@@ -10,7 +12,7 @@
     --ease-polish:     cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* default pink theme — also the no-js fallback */
+/* default pink theme -- also the no-js fallback */
 :root, [data-theme="pink"] {
     --background: #000000;
     --text: rgba(255, 192, 203, 0.85);
@@ -98,9 +100,9 @@ body {
 }
 
 .container {
-    max-width: 900px;
+    max-width: 1060px;
     margin: 0 auto;
-    padding: 2rem;
+    padding: 2rem 2rem 8rem;
     width: 100%;
     flex-grow: 1;
     position: relative;
@@ -109,8 +111,7 @@ body {
 
 header {
     text-align: center;
-    margin-bottom: 2.5rem;
-    animation: headerEntrance 0.6s var(--ease-out-expo) both;
+    margin-bottom: 1.75rem;
 }
 
 header h1 {
@@ -126,41 +127,74 @@ header p {
     color: var(--text-muted);
 }
 
-/* filter cards */
-.card {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 34%, rgba(0, 0, 0, 0.08) 100%),
-        var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 1.5rem 1.7rem;
-    margin-bottom: 1.5rem;
-    position: relative;
-    overflow: hidden;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.24),
-        0 10px 28px rgba(0, 0, 0, 0.16);
-    transition: border-color 0.25s var(--ease-snappy);
-    animation: cardEntrance 0.5s var(--ease-out-expo) both;
+/* presets -- pill links, same shine-sweep language as the footer */
+.presets {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-bottom: 2.5rem;
 }
 
-.card:hover { border-color: var(--hover-border); }
+.presets a {
+    position: relative;
+    display: inline-flex;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-family: 'Geist Mono', monospace;
+    font-size: 0.82rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    overflow: hidden;
+    transition:
+        color 0.2s var(--ease-snappy),
+        border-color 0.2s var(--ease-snappy),
+        box-shadow 0.26s var(--ease-polish),
+        filter 0.2s var(--ease-snappy);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0,0,0,0.14);
+}
 
-.card:nth-of-type(1) { animation-delay: 0ms; }
-.card:nth-of-type(2) { animation-delay: 60ms; }
-.card:nth-of-type(3) { animation-delay: 120ms; }
-.card:nth-of-type(4) { animation-delay: 180ms; }
-.card:nth-of-type(5) { animation-delay: 240ms; }
-.card:nth-of-type(6) { animation-delay: 300ms; }
-.card:nth-of-type(7) { animation-delay: 360ms; }
+.presets a::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    background: linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.12) 50%, transparent 80%);
+    opacity: 0;
+    transform: translateX(-130%);
+    transition: transform 0.55s var(--ease-polish), opacity 0.2s var(--ease-snappy);
+    pointer-events: none;
+}
 
-.card h2 {
+.presets a:hover {
     color: var(--text-bright);
-    font-size: 1.05rem;
+    border-color: var(--hover-border);
+    filter: brightness(1.03);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 10px 22px rgba(0,0,0,0.18),
+        0 0 20px -10px var(--button-shadow-strong);
+}
+
+.presets a:hover::before { opacity: 1; transform: translateX(130%); }
+
+/* flat sections -- no card boxes, just a divider between bands */
+.band {
+    padding: 1.6rem 0;
+    border-top: 1px solid var(--border);
+}
+
+.band:first-of-type { border-top: none; padding-top: 0; }
+
+.band h2 {
+    color: var(--text-bright);
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     margin-bottom: 1rem;
     font-weight: 600;
-    letter-spacing: 0.01em;
 }
 
 .hint {
@@ -169,7 +203,7 @@ header p {
     margin-top: 0.9rem;
 }
 
-.hint code, .card code {
+.hint code {
     font-family: 'Geist Mono', monospace;
     background: rgba(0, 0, 0, 0.25);
     padding: 0.1rem 0.4rem;
@@ -180,7 +214,7 @@ header p {
 a { color: var(--link-color); }
 a:hover { color: var(--link-hover); }
 
-/* pill checkboxes + radios — pure css, work without js */
+/* pill checkboxes + radios -- pure css, work without js */
 .pills {
     display: flex;
     flex-wrap: wrap;
@@ -196,6 +230,7 @@ a:hover { color: var(--link-hover); }
 }
 
 .pills label {
+    position: relative;
     display: inline-flex;
     align-items: center;
     padding: 0.5rem 1.1rem;
@@ -207,12 +242,13 @@ a:hover { color: var(--link-hover); }
     font-weight: 500;
     cursor: pointer;
     user-select: none;
+    overflow: hidden;
     transition:
-        transform 0.22s var(--ease-polish),
         background-color 0.15s var(--ease-snappy),
         border-color 0.15s var(--ease-snappy),
         color 0.15s var(--ease-snappy),
-        box-shadow 0.24s var(--ease-polish);
+        box-shadow 0.24s var(--ease-polish),
+        filter 0.2s var(--ease-snappy);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.05),
         0 2px 0 rgba(0,0,0,0.35);
@@ -221,10 +257,14 @@ a:hover { color: var(--link-hover); }
 .pills label:hover {
     border-color: var(--hover-border);
     color: var(--text);
-    transform: translateY(-1px);
+    filter: brightness(1.04);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 3px 0 rgba(0,0,0,0.4),
+        0 0 20px -10px var(--button-shadow-strong);
 }
 
-.pills label:active { transform: translateY(1px) scale(0.985); }
+.pills label:active { filter: brightness(0.96); }
 
 .pills input:checked + label {
     color: var(--text-bright);
@@ -244,9 +284,9 @@ a:hover { color: var(--link-hover); }
 }
 
 /* text/select/number fields */
-.grid-2 {
+.fields {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 1rem;
 }
 
@@ -301,47 +341,67 @@ a:hover { color: var(--link-hover); }
     cursor: pointer;
 }
 
-/* url preview + actions */
-.url-card { text-align: center; }
+/* sticky url bar, pinned to the bottom of the viewport */
+.url-bar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border);
+}
+
+.url-bar-inner {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 0.9rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+}
 
 .url-preview {
-    display: block;
+    flex: 1;
+    min-width: 0;
+    background: none;
+    padding: 0;
     font-family: 'Geist Mono', monospace;
     font-size: 0.85rem;
     color: var(--text-bright);
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1rem 1.2rem;
-    word-break: break-all;
-    text-align: left;
-    margin-bottom: 1.1rem;
-    transition: border-color 0.2s var(--ease-snappy);
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
 }
 
-.url-actions {
-    display: flex;
-    gap: 0.8rem;
-    justify-content: center;
+.url-preview::-webkit-scrollbar { display: none; }
+
+.url-noscript {
+    max-width: 1060px;
+    margin: 0.6rem auto 0;
+    padding: 0 2rem;
 }
 
 .action-btn {
+    position: relative;
     background:
         linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
         var(--button-bg);
     border: 1px solid var(--border);
     color: var(--text-bright);
-    padding: 0.7rem 2rem;
+    padding: 0.6rem 1.4rem;
     border-radius: 11px;
     cursor: pointer;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-family: 'Sora', sans-serif;
     font-weight: 600;
+    flex-shrink: 0;
+    overflow: hidden;
     transition:
-        transform 0.22s var(--ease-polish),
         box-shadow 0.22s var(--ease-polish),
         background-color 0.15s var(--ease-snappy),
-        border-color 0.15s var(--ease-snappy);
+        border-color 0.15s var(--ease-snappy),
+        filter 0.18s var(--ease-snappy);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.08),
         0 2px 0 rgba(0,0,0,0.45),
@@ -351,15 +411,16 @@ a:hover { color: var(--link-hover); }
 .action-btn:hover {
     background-color: var(--button-hover);
     border-color: var(--hover-border);
-    transform: translateY(-1px) scale(1.015);
+    filter: brightness(1.04);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.1),
         0 3px 0 rgba(0,0,0,0.5),
-        0 14px 26px rgba(0, 0, 0, 0.22);
+        0 14px 26px rgba(0, 0, 0, 0.22),
+        0 0 24px -10px var(--button-shadow-strong);
 }
 
 .action-btn:active {
-    transform: translateY(1px) scale(0.985);
+    filter: brightness(0.97);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.04),
         0 1px 0 rgba(0,0,0,0.42),
@@ -372,12 +433,128 @@ a:hover { color: var(--link-hover); }
 }
 
 @keyframes copyPop {
-    0%   { transform: scale(1); }
-    40%  { transform: translateY(-1px) scale(1.08); }
-    100% { transform: scale(1); }
+    0%, 100% { filter: brightness(1); }
+    40% { filter: brightness(1.25); }
 }
 
-.copy-success { animation: copyPop 0.5s var(--spring-bounce) !important; }
+.copy-success { animation: copyPop 0.4s var(--ease-polish) !important; }
+
+/* docs page: no sticky bar, so no clearance needed */
+.container-docs { padding-bottom: 2.5rem; }
+
+.band h3 {
+    color: var(--text-bright);
+    font-size: 0.88rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 1.6rem 0 0.7rem;
+}
+
+.prose {
+    color: var(--text);
+    font-size: 0.92rem;
+    max-width: 68ch;
+    margin-bottom: 0.85rem;
+}
+
+.prose:last-child { margin-bottom: 0; }
+
+code {
+    font-family: 'Geist Mono', monospace;
+    font-size: 0.85em;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    padding: 0.1rem 0.4rem;
+    word-break: break-word;
+}
+
+code a { text-decoration: none; }
+
+/* spec tables -- rows separated by hairlines, no box around them */
+.table-scroll { overflow-x: auto; margin: 0.4rem 0 1rem; }
+
+table.spec {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.86rem;
+}
+
+table.spec th {
+    text-align: left;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0 0.9rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+table.spec td {
+    padding: 0.55rem 0.9rem 0.55rem 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text);
+}
+
+table.spec tr:last-child td { border-bottom: none; }
+
+table.spec td:first-child {
+    font-family: 'Geist Mono', monospace;
+    color: var(--text-bright);
+    white-space: nowrap;
+}
+
+table.spec td:first-child code { background: none; padding: 0; }
+
+table.spec em {
+    font-style: normal;
+    color: var(--text-muted);
+}
+
+table.spec tbody tr {
+    transition: background-color 0.15s var(--ease-snappy);
+}
+
+table.spec tbody tr:hover { background-color: var(--card-bg); }
+
+/* sample output blocks */
+pre.sample {
+    font-family: 'Geist Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    color: var(--text-bright);
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    overflow-x: auto;
+    white-space: pre;
+    transition: border-color 0.18s var(--ease-snappy);
+}
+
+pre.sample:hover { border-color: var(--hover-border); }
+
+.examples {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    font-size: 0.86rem;
+    color: var(--text-muted);
+}
+
+.examples a {
+    font-family: 'Geist Mono', monospace;
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+    transition: border-color 0.18s var(--ease-snappy), color 0.18s var(--ease-snappy);
+}
+
+.examples a:hover { border-color: var(--hover-border); }
 
 /* footer */
 footer {
@@ -387,6 +564,8 @@ footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
 }
 
 .footer-link {
@@ -405,21 +584,37 @@ footer {
         color 0.2s var(--ease-snappy),
         border-color 0.2s var(--ease-snappy),
         box-shadow 0.26s var(--ease-polish),
-        letter-spacing 0.25s var(--ease-out-expo);
+        letter-spacing 0.25s var(--ease-out-expo),
+        filter 0.2s var(--ease-snappy);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.05),
         0 10px 24px rgba(0,0,0,0.14);
+}
+
+.footer-link::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    background: linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.12) 50%, transparent 80%);
+    opacity: 0;
+    transform: translateX(-130%);
+    transition: transform 0.55s var(--ease-polish), opacity 0.2s var(--ease-snappy);
+    pointer-events: none;
 }
 
 .footer-link:hover {
     color: var(--text-bright);
     border-color: var(--hover-border);
     letter-spacing: 0.03em;
+    filter: brightness(1.03);
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.08),
         0 14px 30px rgba(0,0,0,0.18),
         0 0 24px -12px var(--button-shadow-strong);
 }
+
+.footer-link:hover::before { opacity: 1; transform: translateX(130%); }
 
 .footer-link svg { width: 22px; height: 22px; }
 
@@ -466,16 +661,6 @@ footer {
     to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes cardEntrance {
-    from { opacity: 0; transform: translateY(24px) scale(0.97); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes headerEntrance {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -496,8 +681,11 @@ footer {
 ::-webkit-scrollbar-thumb:hover { background-color: var(--hover-border); }
 
 @media (max-width: 768px) {
-    .container { padding: 1rem; }
+    .container { padding: 1rem 1rem 9rem; }
     header h1 { font-size: 2.2rem; }
-    footer { flex-direction: column; gap: 1rem; }
+    .fields { grid-template-columns: 1fr 1fr; }
+    .url-bar-inner { padding: 0.8rem 1rem; flex-wrap: wrap; }
+    .url-preview { width: 100%; order: -1; margin-bottom: 0.4rem; }
+    footer { flex-direction: column; gap: 1rem; align-items: stretch; text-align: center; }
     #notification-container { top: 12px; right: 12px; width: min(360px, calc(100vw - 24px)); }
 }

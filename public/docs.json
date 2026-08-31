@@ -15,6 +15,40 @@
       "sort=random is never cached"
     ]
   },
+  "shortcuts": {
+    "pattern": "/<name>.<ext>",
+    "extensions": ["txt", "json", "jsonl", "csv"],
+    "notes": [
+      "a shortcut pins one filter dimension; every other param still works as a query string (/socks5.txt?country=us&limit=50)",
+      "if the same filter appears in both the path and the query, the path wins",
+      "a shortcut and the equivalent /list?... url share one cache entry",
+      "/unknown.<ext> resolves to anonymity=unknown; for the ip_type one use /list?ip_type=unknown"
+    ],
+    "names": {
+      "all": "no filter",
+      "http": "type=http",
+      "https": "type=https",
+      "socks4": "type=socks4",
+      "socks5": "type=socks5",
+      "elite": "anonymity=elite",
+      "anonymous": "anonymity=anonymous",
+      "anon": "anonymity=anonymous",
+      "transparent": "anonymity=transparent",
+      "unknown": "anonymity=unknown",
+      "hosting": "ip_type=hosting",
+      "isp": "ip_type=isp",
+      "business": "ip_type=business",
+      "education_research": "ip_type=education_research",
+      "edu": "ip_type=education_research",
+      "government_admin": "ip_type=government_admin",
+      "gov": "ip_type=government_admin"
+    },
+    "aliases": {
+      "anon": "anonymous",
+      "edu": "education_research",
+      "gov": "government_admin"
+    }
+  },
   "params": {
     "type": {
       "alias": "protocol",
@@ -125,6 +159,9 @@
     }
   },
   "examples": [
+    "https://proxies.minoa.cat/list",
+    "https://proxies.minoa.cat/socks5.txt",
+    "https://proxies.minoa.cat/elite.json?country=de&limit=50",
     "https://proxies.minoa.cat/list?type=socks4&type=socks5&format=txt&sort=response&limit=0",
     "https://proxies.minoa.cat/list?type=http&anonymity=elite&country=us,de&format=json&limit=100",
     "https://proxies.minoa.cat/list?type=socks5&min_reliability=0.9&response_max=1000&format=csv",

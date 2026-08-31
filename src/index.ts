@@ -2,7 +2,15 @@
 // static assets (/, /docs.json, /style.css...) are served by worker assets;
 // only /list is handled here.
 
-import { ApiError, canonicalQuery, parseParams, type Format } from "./params";
+import {
+  ApiError,
+  canonicalQuery,
+  matchShortcut,
+  parseParams,
+  specFromShortcut,
+  type Format,
+  type Shortcut,
+} from "./params";
 import { getDataset } from "./data";
 import { applyFilters } from "./filter";
 import { CONTENT_TYPES, render, renderError } from "./render";
@@ -17,18 +25,24 @@ function errorResponse(format: Format, status: number, code: string, message: st
   });
 }
 
-// best-effort format detection for errors thrown before params are parsed
+// best-effort format detection for errors thrown before params are parsed.
+// a shortcut path's extension wins over ?format=
 function guessFormat(url: URL): Format {
+  const shortcut = matchShortcut(url.pathname);
+  if (shortcut) return shortcut.format;
   const f = (url.searchParams.get("format") || "txt").toLowerCase();
   return f === "json" || f === "jsonl" || f === "csv" ? f : "txt";
 }
 
-async function handleList(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const url = new URL(request.url);
-
+async function handleList(
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  shortcut: Shortcut | null,
+): Promise<Response> {
   // bare /list: full upstream proxies.json, untouched
-  const bare = url.search === "";
-  const spec = parseParams(url);
+  const bare = url.pathname === "/list" && url.search === "";
+  const spec = shortcut ? specFromShortcut(url, shortcut) : parseParams(url);
 
   // random order is never cached — every call must reshuffle
   const cacheable = spec.sort !== "random";
@@ -73,20 +87,27 @@ async function handleList(request: Request, env: Env, ctx: ExecutionContext): Pr
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname !== "/list") {
-      // static assets handle the rest; this is a safety net
-      return new Response("not found — see /docs.json\n", {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return errorResponse(guessFormat(url), 405, "method_not_allowed", "only GET is supported");
-    }
-
     try {
-      return await handleList(request, env, ctx);
+      const shortcut = matchShortcut(url.pathname);
+      if (url.pathname !== "/list" && !shortcut) {
+        // assets already had their chance at this path.
+        // browsers get the styled page, scripts get one plain line.
+        if (request.headers.get("Accept")?.includes("text/html")) {
+          const page = await env.ASSETS.fetch(new URL("/404.html", url.origin));
+          return new Response(page.body, {
+            status: 404,
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          });
+        }
+        return new Response("not found. see /docs\n", {
+          status: 404,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return errorResponse(guessFormat(url), 405, "method_not_allowed", "only GET is supported");
+      }
+      return await handleList(env, ctx, url, shortcut);
     } catch (e) {
       const format = guessFormat(url);
       if (e instanceof ApiError) {

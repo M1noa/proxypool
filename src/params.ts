@@ -268,6 +268,66 @@ export function parseParams(url: URL): FilterSpec {
   };
 }
 
+// --- shortcut routes: /<name>.<ext> ---------------------------------------
+// one filter dimension pinned by the path, everything else still comes from
+// the query string. /all.<ext> pins nothing.
+
+export type ShortcutDim = "type" | "anonymity" | "ip_type";
+
+export interface Shortcut {
+  name: string;
+  dim: ShortcutDim | null;
+  value: string | null;
+  format: Format;
+}
+
+const SHORTCUTS: Record<string, { dim: ShortcutDim | null; value: string | null }> = {
+  all: { dim: null, value: null },
+
+  http: { dim: "type", value: "http" },
+  https: { dim: "type", value: "https" },
+  socks4: { dim: "type", value: "socks4" },
+  socks5: { dim: "type", value: "socks5" },
+
+  elite: { dim: "anonymity", value: "elite" },
+  anonymous: { dim: "anonymity", value: "anonymous" },
+  anon: { dim: "anonymity", value: "anonymous" },
+  transparent: { dim: "anonymity", value: "transparent" },
+  unknown: { dim: "anonymity", value: "unknown" },
+
+  hosting: { dim: "ip_type", value: "hosting" },
+  isp: { dim: "ip_type", value: "isp" },
+  business: { dim: "ip_type", value: "business" },
+  education_research: { dim: "ip_type", value: "education_research" },
+  edu: { dim: "ip_type", value: "education_research" },
+  government_admin: { dim: "ip_type", value: "government_admin" },
+  gov: { dim: "ip_type", value: "government_admin" },
+};
+
+const SHORTCUT_PATH = /^\/([a-z0-9_]+)\.(txt|json|jsonl|csv)$/;
+
+export function matchShortcut(pathname: string): Shortcut | null {
+  const m = SHORTCUT_PATH.exec(pathname);
+  if (!m) return null;
+  const [, name, ext] = m;
+  if (!name || !ext) return null;
+  const entry = SHORTCUTS[name];
+  if (!entry) return null;
+  return { name, dim: entry.dim, value: entry.value, format: ext as Format };
+}
+
+// the path wins over the same param in the query string; every other param
+// still applies, so /socks5.txt?country=us works
+export function specFromShortcut(url: URL, shortcut: Shortcut): FilterSpec {
+  const q = new URLSearchParams(url.search);
+  q.set("format", shortcut.format);
+  if (shortcut.dim && shortcut.value) {
+    if (shortcut.dim === "type") q.delete("protocol");
+    q.set(shortcut.dim, shortcut.value);
+  }
+  return parseParams(new URL(`${url.origin}/list?${q.toString()}`));
+}
+
 // stable string for cache keys: same filters -> same key regardless of
 // param order, repetition, or case
 export function canonicalQuery(spec: FilterSpec): string {

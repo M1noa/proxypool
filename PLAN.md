@@ -10,8 +10,13 @@ beyond `wrangler deploy`. typescript, strict, no `any`.
 ```
 GET /            static url-generator ui (works without js)
 GET /list        the api. filters -> sort -> limit -> render
+                 bare /list with no params returns the full upstream
+                 proxies.json untouched (application/json)
+GET /<name>.<ext>  shortcut routes, e.g. /socks5.txt, /elite.json, /edu.csv
+GET /docs        human api docs (static asset docs.html)
 GET /docs.json   machine-readable api spec (static asset)
 /style.css /script.js /noise.png   static assets
+unknown paths    404.html for browsers, one plain-text line for scripts
 ```
 
 ## data
@@ -66,6 +71,25 @@ unknown params and invalid values are 400s, rendered in the requested format.
 | limit | int, 0=all | 0 |
 | format | txt, json, csv, jsonl | txt |
 
+## shortcut routes
+
+`/<name>.<ext>` where ext is txt | json | jsonl | csv. the name pins exactly one
+filter; the rest of the query string still applies, and the path wins over a
+conflicting param. table lives in `src/params.ts`.
+
+| name | pins |
+|---|---|
+| all | nothing |
+| http, https, socks4, socks5 | type |
+| elite, anonymous (alias anon), transparent, unknown | anonymity |
+| hosting, isp, business, education_research (alias edu), government_admin (alias gov) | ip_type |
+
+`unknown` is ambiguous (anonymity and ip_type both have an empty value in the
+data). the route means anonymity; `/list?ip_type=unknown` covers the other one.
+
+shortcuts run through `parseParams` on a synthesized query string, so they share
+cache entries with the equivalent `/list?...` url and return identical bytes.
+
 ### txt protocol rule
 
 - exactly one type selected -> bare `ip:port` lines
@@ -88,13 +112,20 @@ csv -> `error,message` header + row.
 ## frontend
 
 copies crypto.minoa.cat design: black bg, animated `noise.png`, Rubik 80s Fade
-"ProxyPool" header, Sora body, Geist Mono for the url preview, same card/button/
-notification/footer styles, random pink/white/pastel theme per load.
-unused css (wallets, modal, qr) stripped.
+header, Sora body, Geist Mono for urls and code, random pink/white/pastel theme
+per load. no cards anywhere: flat `.band` sections split by 1px hairlines,
+1060px container. hover states only change border-color, brightness, shadow,
+letter-spacing, and run a diagonal shine sweep on pills. nothing moves on hover.
 
-the page is a url generator: every filter as form controls, live-built url,
-copy + open buttons. without js the native GET form still submits to /list,
-and the base url + docs link are shown.
+`/` is a url generator: every filter as a form control, live url preview,
+copy + open. with js on, the preview collapses to the shortest equivalent route
+(nothing selected -> `/list`, one type -> `/socks5.txt`, aliases anon/edu/gov),
+and submit navigates there. with js off the native GET form still posts to
+`/list` with the long query string, which returns the same data.
+
+`/docs` (public/docs.html) is the human version of docs.json: endpoint, shortcut
+table, every param, formats with sample output, error shapes, response headers,
+example urls. same flat bands, no cards.
 
 ## files
 
@@ -107,7 +138,8 @@ src/params.ts    query parse/validate -> normalized spec
 src/filter.ts    filter/sort/limit
 src/render.ts    txt/json/jsonl/csv + in-format errors
 src/data.ts      upstream fetch + dataset cache
-public/          index.html style.css script.js noise.png docs.json
+public/          index.html docs.html 404.html style.css script.js
+                 noise.png docs.json
 ```
 
 ## workers best-practice rules applied

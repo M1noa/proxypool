@@ -3,19 +3,26 @@
 - [x] orphan branch `pages-cache` (worktree at ../proxypool-pages-cache)
 - [x] wrangler installed globally (4.127.1)
 - [x] PLAN.md / TODO.md / AGENTS.md / README.md
-- [ ] scaffold: package.json, tsconfig.json, wrangler.jsonc, npm install
-- [ ] src/params.ts — query parsing, validation, canonicalization
-- [ ] src/data.ts — upstream fetch + 30s edge cache
-- [ ] src/filter.ts — filter/sort/limit
-- [ ] src/render.ts — txt/json/jsonl/csv + in-format errors
-- [ ] src/index.ts — router, cache layer, error boundary
-- [ ] public/index.html — url generator ui (works without js)
-- [ ] public/style.css — crypto.minoa.cat design, unused stripped
-- [ ] public/script.js — live url builder, copy, theme
-- [ ] public/noise.png — copied
-- [ ] public/docs.json — full api spec
-- [ ] tsc --noEmit clean
-- [ ] wrangler dev + curl test matrix (every filter, format, error)
-- [ ] wrangler deploy (only if cloudflare auth exists locally)
+- [x] scaffold: package.json, tsconfig.json, wrangler.jsonc, npm install
+- [x] src/params.ts — query parsing, validation, canonicalization
+- [x] src/data.ts — upstream fetch + 30s edge cache
+- [x] src/filter.ts — filter/sort/limit
+- [x] src/render.ts — txt/json/jsonl/csv + in-format errors
+- [x] src/index.ts — router, cache layer, error boundary
+- [x] public/index.html — url generator ui (works without js)
+- [x] public/style.css — crypto.minoa.cat design, unused stripped
+- [x] public/script.js — live url builder, copy, theme
+- [x] public/noise.png — copied
+- [x] public/docs.json — full api spec
+- [x] bare /list returns full proxies.json untouched
+- [x] shortcut routes /<name>.<ext> + aliases (anon, edu, gov)
+- [x] ui collapses selections to the shortest equivalent url
+- [x] public/docs.html — human api docs at /docs
+- [x] docs.json shortcuts section
+- [x] 404.html served to browsers, plain text to scripts
+- [x] tsc --noEmit clean
+- [x] wrangler dev + curl test matrix (every filter, format, error)
+- [x] curl matrix over every shortcut, alias, and collapse rule
+- [ ] wrangler deploy — blocked: needs `wrangler login` (no local cf auth)
 - [ ] custom domain proxies.minoa.cat
 - [ ] ~~push branch to github~~ — user: do not push
