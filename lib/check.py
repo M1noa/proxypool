@@ -275,7 +275,8 @@ async def _progress_reporter(total, counters, interval=10, concurrency=0):
               flush=True)
 
 
-async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=()):
+async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=(),
+                     deadline=None):
     """in place: verifies protocols, fills anonymity/https/RT/last_checked.
     skip: iterable of (ip, port, proto) known-dead protocol probes to skip;
     a record is only dropped when every probe in its plan is skipped.
@@ -283,6 +284,9 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
     get one second-chance re-probe at the end.
     concurrency 0 = derive from runner specs + measured bandwidth, see
     _derive_concurrency.
+    deadline: time.monotonic() timestamp; the worker pool is force-cut at
+    this point (backstop for a stuck probe surviving the wait_for guard) and
+    whatever was probed so far is still returned instead of hanging.
     returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
     dropped from alive_records; outcomes is [(ip, port, proto, alive,
     rt_ms|None)] for every protocol actually probed"""
@@ -326,7 +330,9 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
     session = aiohttp.ClientSession(connector=connector, timeout=_timeout())
 
     async def run_pool(pool_records, out, track=None):
-        """worker pool: `concurrency` workers pull indices off a shared counter"""
+        """worker pool: `concurrency` workers pull indices off a shared counter.
+        cut short at `deadline` — a stuck probe that outlives its own
+        wait_for guard shouldn't be able to hang the whole run."""
         it = 0
 
         async def worker():
@@ -346,7 +352,17 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
                     track["checked"] += 1
                     track["alive" if ok else "dead"] += 1
 
-        await asyncio.gather(*(worker() for _ in range(concurrency)))
+        gathered = asyncio.gather(*(worker() for _ in range(concurrency)))
+        remaining = (deadline - time.monotonic()) if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            gathered.cancel()
+            return
+        try:
+            await asyncio.wait_for(gathered, remaining)
+        except asyncio.TimeoutError:
+            checked = track["checked"] if track is not None else "?"
+            print(f"time budget hit, stopping with {checked}/{len(pool_records)} "
+                  f"probed", flush=True)
 
     reporter = asyncio.ensure_future(
         _progress_reporter(len(records), counters, concurrency=concurrency))
