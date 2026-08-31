@@ -265,7 +265,7 @@ func TestPrefetchHeaderAndAsURL(t *testing.T) {
 	})
 	mux.HandleFunc("/final.txt", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
-			http.Error(w, "no auth carried through", 401)
+			http.Error(w, "no auth carried through", http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, "1.2.3.9:3128\n")

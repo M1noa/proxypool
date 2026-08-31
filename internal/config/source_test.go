@@ -2,6 +2,7 @@ package config
 
 import (
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -69,7 +70,7 @@ func TestRegexesAreRE2(t *testing.T) {
 			check(s.Name+".extract.source_meta."+k+".regex", sp.Regex)
 		}
 		for i, p := range s.Prefetch {
-			check(s.Name+".prefetch["+string(rune('0'+i))+"].regex", p.Regex)
+			check(s.Name+".prefetch["+strconv.Itoa(i)+"].regex", p.Regex)
 		}
 	}
 }
