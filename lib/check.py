@@ -9,9 +9,9 @@ CHECK_URL = "http://www.google.com/generate_204"
 ECHO_URLS = ["http://azenv.net/", "http://httpbin.org/get"]
 MYIP_URLS = ["https://api.ipify.org", "https://icanhazip.com"]
 BASELINE_PINGS = 5
-CONCURRENCY = 512  # fallback when no speedtest measurement is available
-CONCURRENCY_MIN = 128
-CONCURRENCY_MAX = 819
+CONCURRENCY = 1536  # fallback when specs can't be read
+CONCURRENCY_MIN = 1024
+CONCURRENCY_MAX = 3600
 SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10000000"
 SPEEDTEST_CONN = 4
 # all proxies ping the same endpoint (google generate_204); 5s keeps the run
@@ -29,6 +29,58 @@ async def _fetch(session, url, proxy=None):
     async with session.get(url, proxy=proxy) as resp:
         resp.raise_for_status()
         return await resp.read()
+
+
+def _derive_concurrency(mbps):
+    """worker count from runner specs weighed against measured bandwidth.
+    the checker is latency-bound (a full run barely moves 10 mbps), so cpu and
+    free ram set the real ceiling; bandwidth only pulls the number down on a
+    thin pipe. each dimension gives a worker budget, blended then clamped."""
+    import os
+
+    cpus = os.cpu_count() or 2
+    cpu_budget = cpus * 600  # event loop + tls handshakes one core can absorb
+    try:
+        import psutil
+        # available, not total: the record set is already resident by now
+        ram_budget = (psutil.virtual_memory().available / 1e9) * 500
+    except Exception:
+        ram_budget = CONCURRENCY
+    net_budget = mbps * 4 if mbps else cpu_budget
+    blend = 0.45 * cpu_budget + 0.25 * ram_budget + 0.30 * net_budget
+    if not blend:
+        return CONCURRENCY
+    return int(max(CONCURRENCY_MIN, min(CONCURRENCY_MAX, round(blend))))
+
+
+def _raise_fd_limit(concurrency):
+    """each worker can hold a gate socket plus one per parallel probe; the
+    default soft limit is well under that. raise toward the hard limit."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = min(hard, max(soft, concurrency * 6 + 1024))
+        if want > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    except Exception:
+        pass
+
+
+async def _tcp_open(ip, port):
+    """true if the port accepts a connection within TIMEOUT. a multi-protocol
+    claim that fails this once is skipped entirely instead of paying TIMEOUT
+    again per claimed protocol."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, int(port)), TIMEOUT)
+    except Exception:
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:
+        pass
+    return True
 
 
 async def _socks_fetch(ip, port, proto, url):
@@ -135,14 +187,21 @@ class Checker:
         return ""
 
     async def _check_one(self, rec, session):
+        plan = rec.get("_plan") or self._probe_plan(rec)
+        if not await _tcp_open(rec["ip"], rec["port"]):
+            rec["_probes"] = {p: None for p in plan}
+            return False
+        # probes run concurrently: a dead proxy costs one TIMEOUT total, not
+        # one per claimed protocol (which was 10-20s a record)
+        got = await asyncio.gather(
+            *(self._probe(rec["ip"], rec["port"], p, session) for p in plan),
+            return_exceptions=True)
         best_rt = None
         best_raw = None
         ok = set()
         probes = {}
-        for p in rec.get("_plan") or self._probe_plan(rec):
-            try:
-                ms = await self._probe(rec["ip"], rec["port"], p, session)
-            except Exception:
+        for p, ms in zip(plan, got):
+            if isinstance(ms, BaseException):
                 probes[p] = None
                 continue
             rt = self._calibrated(ms)
@@ -214,7 +273,8 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
     a record is only dropped when every probe in its plan is skipped.
     prev_alive: (ip, port) pairs with a history success — failures among them
     get one second-chance re-probe at the end.
-    concurrency 0 = derive from a speedtest (mbps * 2, clamped).
+    concurrency 0 = derive from runner specs + measured bandwidth, see
+    _derive_concurrency.
     returns (alive_records, stats, outcomes, skipped_count) — dead proxies are
     dropped from alive_records; outcomes is [(ip, port, proto, alive,
     rt_ms|None)] for every protocol actually probed"""
@@ -239,12 +299,19 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
     await c.calibrate()
     if not concurrency:
         mbps = await c.measure_mbps() if speedtest else 0.0
-        concurrency = (max(CONCURRENCY_MIN, min(CONCURRENCY_MAX, round(mbps * 2)))
-                       if mbps else CONCURRENCY)
-    print(f"concurrency={concurrency}"
-          + (f" (measured {c.mbps:.0f} mbps)" if c.mbps else " (default)"),
+        concurrency = _derive_concurrency(mbps)
+    import os as _os
+    _spec = f"{_os.cpu_count() or '?'}cpu"
+    try:
+        import psutil as _ps
+        _spec += f" {_ps.virtual_memory().available / 1e9:.1f}gb free"
+    except Exception:
+        pass
+    print(f"concurrency={concurrency} ({_spec}"
+          + (f", {c.mbps:.0f} mbps)" if c.mbps else ", no speedtest)"),
           flush=True)
 
+    _raise_fd_limit(concurrency)
     counters = {"checked": 0, "alive": 0, "dead": 0}
     results = [False] * len(records)
     connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
