@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"syscall"
 	"testing"
 	"time"
 
@@ -9,13 +10,35 @@ import (
 )
 
 func TestDeriveConcurrencyStaysWithinClamp(t *testing.T) {
-	// deriveConcurrency reads live cpu/ram, so the exact blend varies by
+	// deriveConcurrency reads live cpu/ram, so the exact budget varies by
 	// machine; the [concurrencyMin, concurrencyMax] clamp must hold regardless.
+	// a thin pipe or a tiny descriptor limit must not push it below the floor,
+	// and an absurd one must not push it past the ceiling.
 	for _, mbps := range []float64{0, -5, 1, 100, 1e6} {
-		got := deriveConcurrency(mbps)
-		if got < concurrencyMin || got > concurrencyMax {
-			t.Errorf("deriveConcurrency(%v) = %d, want within [%d, %d]", mbps, got, concurrencyMin, concurrencyMax)
+		for _, fd := range []uint64{0, 1, fdReserve, fdReserve + 1, 1 << 20} {
+			got := deriveConcurrency(mbps, fd)
+			if got < concurrencyMin || got > concurrencyMax {
+				t.Errorf("deriveConcurrency(%v, %d) = %d, want within [%d, %d]",
+					mbps, fd, got, concurrencyMin, concurrencyMax)
+			}
 		}
+	}
+}
+
+// raiseFDLimit must never claim more headroom than the kernel granted:
+// deriveConcurrency divides by its return, so an overreport oversubscribes
+// sockets and every probe that cannot get one is recorded as a dead proxy.
+func TestRaiseFDLimitReportsWhatItGot(t *testing.T) {
+	got := raiseFDLimit(concurrencyMax)
+	var rl syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err != nil {
+		t.Skip(err)
+	}
+	if got > rl.Cur {
+		t.Errorf("reported %d, soft limit is %d", got, rl.Cur)
+	}
+	if want := uint64(concurrencyMax)*fdPerWorker + fdReserve; got > want {
+		t.Errorf("reported %d, only asked for %d", got, want)
 	}
 }
 

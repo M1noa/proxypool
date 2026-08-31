@@ -38,9 +38,22 @@ const (
 	speedtestConn = 4
 	baselinePings = 5
 
-	concurrencyDefault = 1024 // fallback when specs can't be read
-	concurrencyMin     = 768
-	concurrencyMax     = 2400
+	concurrencyMin = 768
+	concurrencyMax = 10000
+)
+
+// per-probe costs, measured against a real run: 2400 workers on 4 cpus and a
+// 1123 mbps link sustained 590 probes/s at 6% cpu and ~35 mbps. each budget in
+// deriveConcurrency is "how many probes fit in flight before this runs out".
+const (
+	probeSeconds   = 4.0       // mean occupancy: most probes are dead and time out
+	probeCPUms     = 0.5       // tls handshake and teardown, per probe
+	probeRAMBytes  = 256 << 10 // goroutine, its parallel transports, tls buffers
+	probeWireBytes = 12 << 10  // handshake plus a 204, rounded up
+	// checkOne probes a record's whole plan concurrently — at most socks4,
+	// socks5, https, http — so a worker can hold four sockets at once.
+	fdPerWorker = 6
+	fdReserve   = 1024 // sources, duckdb, the mmdbs, stdio
 )
 
 // timeoutDefault and recordCap are vars, not consts, only so tests can shrink
