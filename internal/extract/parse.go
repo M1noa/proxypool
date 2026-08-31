@@ -1,3 +1,6 @@
+// package extract ports lib/parse.py's extraction half: turn one source's raw
+// body into records, per format — regex over text, dotted paths over json, css
+// selectors over html — then normalize each into a Record.
 package extract
 
 import (

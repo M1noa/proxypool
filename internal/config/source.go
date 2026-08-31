@@ -1,3 +1,6 @@
+// package config reads sources.jsonc: the comment-stripping loader in jsonc.go
+// and the source structs here, including the string-or-object Spec union each
+// field extractor is written as.
 package config
 
 import (
