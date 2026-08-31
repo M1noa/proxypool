@@ -72,52 +72,59 @@ type job struct {
 	plan []string
 }
 
-// deriveConcurrency is _derive_concurrency: cpu and free ram set the ceiling
-// since the checker is latency-bound, bandwidth only pulls it down on a thin
-// pipe. weights and the [concurrencyMin, concurrencyMax] clamp are load-bearing
-// for output stability and are kept byte-for-byte.
-func deriveConcurrency(mbps float64) int {
+// deriveConcurrency sizes the pool against every resource that can actually
+// run out and takes the smallest, because a probe is idle for nearly all of
+// its life and the pool is only ever bounded by whichever runs dry first.
+//
+// python's _derive_concurrency blended the budgets 0.45/0.25/0.30 and clamped
+// at 2400, which is not ported: a blend lets one abundant resource mask a
+// scarce one, and on a 4cpu runner measured at 6% cpu and 3% of its bandwidth
+// the clamp — not the hardware — was the bottleneck.
+func deriveConcurrency(mbps float64, fdLimit uint64) int {
 	cpus := runtime.NumCPU()
 	if cpus <= 0 {
 		cpus = 2
 	}
-	cpuBudget := float64(cpus) * 600
-	ramBudget := float64(concurrencyDefault)
+	// cpu bounds a probe only through the handshake it does spend
+	budget := float64(cpus) * probeSeconds * 1000 / probeCPUms
+
 	if vm, err := mem.VirtualMemory(); err == nil {
-		// available, not total: the record set is already resident by now
-		ramBudget = float64(vm.Available) / 1e9 * 500
+		// available, not total: the record set is already resident by now, and
+		// only half of what is left over is fair game
+		budget = min(budget, float64(vm.Available)/2/probeRAMBytes)
 	}
-	netBudget := cpuBudget
 	if mbps > 0 {
-		netBudget = mbps * 4
+		budget = min(budget, mbps*1e6/8/probeWireBytes*probeSeconds)
 	}
-	blend := 0.45*cpuBudget + 0.25*ramBudget + 0.30*netBudget
-	if blend == 0 {
-		return concurrencyDefault
+	// the one that actually binds on a github runner: a worker that cannot get
+	// a socket records a live proxy as dead, so this budget is not advisory
+	if fdLimit > fdReserve {
+		budget = min(budget, float64(fdLimit-fdReserve)/fdPerWorker)
 	}
-	return max(concurrencyMin, min(concurrencyMax, pyfmt.Round(blend)))
+	return max(concurrencyMin, min(concurrencyMax, pyfmt.Round(budget)))
 }
 
-// raiseFDLimit is _raise_fd_limit: each worker can hold a gate socket plus
-// one per parallel probe, well past the default soft limit. errors are
-// ignored, same as python's bare except — Setrlimit fails outright on some
-// platforms for a want above the kernel's real ceiling.
-func raiseFDLimit(concurrency int) {
+// raiseFDLimit pushes the soft descriptor limit toward what concurrency
+// workers need and reports what it actually got — deriveConcurrency divides by
+// the result, so overreporting would oversubscribe sockets and turn live
+// proxies into dead ones.
+func raiseFDLimit(concurrency int) uint64 {
 	var rl syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err != nil {
-		return
+		return 0
 	}
-	want := uint64(concurrency*6 + 1024)
-	if want < rl.Cur {
-		want = rl.Cur
+	want := min(uint64(concurrency)*fdPerWorker+fdReserve, rl.Max)
+	// halve the ask until one sticks: darwin advertises an infinite Max but the
+	// kernel refuses anything past kern.maxfilesperproc
+	for want > rl.Cur {
+		try := rl
+		try.Cur = want
+		if syscall.Setrlimit(syscall.RLIMIT_NOFILE, &try) == nil {
+			return want
+		}
+		want /= 2
 	}
-	if want > rl.Max {
-		want = rl.Max
-	}
-	if want > rl.Cur {
-		rl.Cur = want
-		syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rl)
-	}
+	return rl.Cur
 }
 
 // CheckAll is check_all: verify every record's claimed protocols, drop the
@@ -158,26 +165,31 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 		return nil, Stats{Skipped: skipped}, nil
 	}
 
+	// raise before deriving: the descriptor limit we actually get is one of the
+	// budgets, and an explicit -concurrency can ask for more than the ceiling
+	fdLimit := raiseFDLimit(max(concurrencyMax, opts.Concurrency))
+
 	concurrency := opts.Concurrency
 	if concurrency == 0 {
 		mbps := 0.0
 		if opts.Speedtest {
 			mbps = c.measureMbps(ctx)
 		}
-		concurrency = deriveConcurrency(mbps)
+		concurrency = deriveConcurrency(mbps, fdLimit)
 	}
 
 	spec := fmt.Sprintf("%dcpu", runtime.NumCPU())
 	if vm, err := mem.VirtualMemory(); err == nil {
 		spec += fmt.Sprintf(" %.1fgb free", float64(vm.Available)/1e9)
 	}
+	if fdLimit > 0 {
+		spec += fmt.Sprintf(" %dfd", fdLimit)
+	}
 	if c.mbps > 0 {
 		logf("concurrency=%d (%s, %.0f mbps)", concurrency, spec, c.mbps)
 	} else {
 		logf("concurrency=%d (%s, no speedtest)", concurrency, spec)
 	}
-
-	raiseFDLimit(concurrency)
 
 	cnt := &counters{}
 	results := make([]bool, len(kept))
