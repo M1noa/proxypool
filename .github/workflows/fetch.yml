@@ -26,37 +26,39 @@ jobs:
       - name: install deps
         run: pip install -r requirements.txt
 
+      - name: restore history
+        run: |
+          mkdir -p output
+          curl -fsSL -o output/history.duckdb \
+            "https://raw.githubusercontent.com/${{ github.repository }}/output/history.duckdb" \
+            || echo "no prior history, starting fresh"
+
       - name: fetch, check, write outputs
         run: python3 fetch_proxies.py
 
-      - name: commit outputs
+      - name: commit readme
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f output/
           git add README.md
           if ! git diff --cached --quiet; then
-            git commit -m "update proxy lists ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
-            # outputs are fully regenerated each run: ours always wins
+            git commit -m "update readme stats ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
             git pull --rebase -X ours origin main
             git push origin HEAD:main
           else
-            echo "no changes to outputs"
-          fi
-          else
-            echo "no changes to outputs"
+            echo "no readme changes"
           fi
 
-      - name: publish history
+      - name: publish outputs
+        # orphan temp repo force-pushed every run: output branch always has 1 commit
         run: |
-          gzip -9 -c output/history.db > /tmp/history.db.gz
           work=$(mktemp -d)
-          cp /tmp/history.db.gz "$work/"
+          cp output/proxies.json output/history.duckdb "$work/"
           git -C "$work" init -q
           git -C "$work" config user.name "github-actions[bot]"
           git -C "$work" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$work" add history.db.gz
-          git -C "$work" commit -qm "history $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git -C "$work" add proxies.json history.duckdb
+          git -C "$work" commit -qm "outputs $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git -C "$work" remote add origin \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git -C "$work" push -qf origin HEAD:refs/heads/history
+          git -C "$work" push -qf origin HEAD:refs/heads/output
