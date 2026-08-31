@@ -69,12 +69,47 @@ func TestParseParity(t *testing.T) {
 				t.Fatalf("record count: got %d, want %d", len(got), len(want.Records))
 			}
 			for i := range got {
-				g, w := canon(recordMap(got[i])), canon(want.Records[i])
+				gm, wm := recordMap(got[i]), want.Records[i]
+				if len(src.SourceMeta) > 0 {
+					// python read only extract.source_meta, so the capture has an
+					// empty source_meta for every source declaring theirs at the
+					// top level. that bug is fixed now, which means the capture
+					// can't speak for this one field here — TestTopLevelSourceMeta
+					// covers it instead.
+					delete(gm, "source_meta")
+					delete(wm, "source_meta")
+				}
+				g, w := canon(gm), canon(wm)
 				if !reflect.DeepEqual(g, w) {
 					t.Fatalf("record %d:\n got %v\nwant %v", i, g, w)
 				}
 			}
 		})
+	}
+}
+
+// a source_meta declared at the source level rather than under extract used to
+// be dropped, silently discarding six sources' city/isp/org metadata.
+func TestTopLevelSourceMeta(t *testing.T) {
+	var src config.Source
+	if err := json.Unmarshal([]byte(`{
+		"name": "t", "format": "json",
+		"source_meta": {"city": "city", "isp": "net.isp"},
+		"extract": {"ip": "ip", "port": "port"}
+	}`), &src); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := ParseContent(&src,
+		`[{"ip": "1.2.3.4", "port": 8080, "city": "Bekasi", "net": {"isp": "LINKNET"}}]`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("got %d records, want 1", len(recs))
+	}
+	want := map[string]any{"city": "Bekasi", "isp": "LINKNET"}
+	if !reflect.DeepEqual(recs[0].SourceMeta, want) {
+		t.Errorf("SourceMeta = %v, want %v", recs[0].SourceMeta, want)
 	}
 }
 
