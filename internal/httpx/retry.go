@@ -62,11 +62,6 @@ type Req struct {
 	Timeout time.Duration
 }
 
-// Get is the common case.
-func (c *Client) Get(ctx context.Context, url string, deadline time.Time) (string, error) {
-	return c.Do(ctx, Req{URL: url, Deadline: deadline})
-}
-
 // Do runs one http call with retry and backoff, returning the decoded body.
 func (c *Client) Do(ctx context.Context, r Req) (string, error) {
 	method := strings.ToUpper(r.Method)

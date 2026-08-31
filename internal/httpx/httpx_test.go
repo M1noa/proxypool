@@ -20,6 +20,12 @@ func serve(t *testing.T, h http.HandlerFunc) *httptest.Server {
 	return s
 }
 
+// get is the plain-GET shorthand these tests want; production always goes
+// through Do with a fuller Req.
+func get(c *Client, url string, deadline time.Time) (string, error) {
+	return c.Do(context.Background(), Req{URL: url, Deadline: deadline})
+}
+
 func TestHeaderPrecedence(t *testing.T) {
 	var got http.Header
 	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +46,7 @@ func TestHeaderPrecedence(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := New(&tc.src, 5*time.Second)
-			if _, err := c.Get(context.Background(), s.URL, time.Time{}); err != nil {
+			if _, err := get(c, s.URL, time.Time{}); err != nil {
 				t.Fatal(err)
 			}
 			if ua := got.Get("User-Agent"); ua != tc.ua {
@@ -61,7 +67,7 @@ func TestRetriesRetryableStatus(t *testing.T) {
 		}
 		w.Write([]byte("ok"))
 	})
-	body, err := New(nil, 5*time.Second).Get(context.Background(), s.URL, time.Time{})
+	body, err := get(New(nil, 5*time.Second), s.URL, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +83,7 @@ func TestGivesUpAfterMaxAttempts(t *testing.T) {
 		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
-	_, err := New(nil, 5*time.Second).Get(context.Background(), s.URL, time.Time{})
+	_, err := get(New(nil, 5*time.Second), s.URL, time.Time{})
 	if int(n.Load()) != MaxAttempts {
 		t.Errorf("attempts = %d, want %d", n.Load(), MaxAttempts)
 	}
@@ -93,7 +99,7 @@ func TestNonRetryableStatusFailsAtOnce(t *testing.T) {
 		n.Add(1)
 		w.WriteHeader(http.StatusNotFound)
 	})
-	_, err := New(nil, 5*time.Second).Get(context.Background(), s.URL, time.Time{})
+	_, err := get(New(nil, 5*time.Second), s.URL, time.Time{})
 	var se *StatusError
 	if !errors.As(err, &se) || se.Code != 404 {
 		t.Fatalf("err = %v, want a 404 StatusError", err)
@@ -106,8 +112,7 @@ func TestNonRetryableStatusFailsAtOnce(t *testing.T) {
 func TestBudgetStopsBeforeRequest(t *testing.T) {
 	var n atomic.Int32
 	s := serve(t, func(w http.ResponseWriter, r *http.Request) { n.Add(1) })
-	_, err := New(nil, 5*time.Second).Get(
-		context.Background(), s.URL, time.Now().Add(-time.Second))
+	_, err := get(New(nil, 5*time.Second), s.URL, time.Now().Add(-time.Second))
 	if !errors.Is(err, ErrBudget) {
 		t.Errorf("err = %v, want ErrBudget", err)
 	}
@@ -124,8 +129,7 @@ func TestBackoffClampedToBudget(t *testing.T) {
 		w.WriteHeader(http.StatusBadGateway)
 	})
 	t0 := time.Now()
-	_, err := New(nil, 5*time.Second).Get(
-		context.Background(), s.URL, time.Now().Add(80*time.Millisecond))
+	_, err := get(New(nil, 5*time.Second), s.URL, time.Now().Add(80*time.Millisecond))
 	if !errors.Is(err, ErrBudget) {
 		t.Errorf("err = %v, want ErrBudget", err)
 	}
