@@ -1,12 +1,10 @@
-# proxypool
+# [ProxyPool](https://proxies.miona.cat)
 > THIS PROJECT WAS MADE PARTIALLY USING AGENTIC AI CODING TOOLS
 
 ---
 
 hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
-hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
 
-outputs live on the auto-reset [`output`](https://github.com/M1noa/proxypool/tree/output) branch (always 1 commit, easy to clone):
 ---
 
 <!-- sources:start -->
