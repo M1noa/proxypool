@@ -30,6 +30,7 @@ export interface ProxyRecord {
 
 export interface Dataset {
   records: ProxyRecord[];
+  raw: string; // original upstream body, for bare-/list passthrough
   fetchedAt: number; // ms epoch
 }
 
@@ -64,9 +65,12 @@ async function fetchUpstream(env: Env): Promise<Dataset> {
     throw new ApiError(502, "upstream_error", `upstream returned HTTP ${res.status}`);
   }
 
+  // bounded payload (a few mb), safe to buffer
+  const text = await res.text();
+
   let raw: unknown;
   try {
-    raw = await res.json();
+    raw = JSON.parse(text);
   } catch {
     throw new ApiError(502, "upstream_bad_json", "upstream did not return valid json");
   }
@@ -76,7 +80,7 @@ async function fetchUpstream(env: Env): Promise<Dataset> {
 
   // drop malformed entries instead of failing the whole dataset
   const records = raw.filter(isRecord);
-  return { records, fetchedAt: Date.now() };
+  return { records, raw: text, fetchedAt: Date.now() };
 }
 
 export async function getDataset(env: Env): Promise<Dataset> {

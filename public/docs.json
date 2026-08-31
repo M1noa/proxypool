@@ -8,6 +8,7 @@
     "methods": ["GET", "HEAD"],
     "cache": "responses cached 30s at the edge; data refreshes hourly upstream",
     "notes": [
+      "bare /list with no query params returns the full upstream proxies.json untouched",
       "multi-value params accept repetition (?type=a&type=b) or commas (?type=a,b)",
       "'any' or 'all' as a value clears that filter",
       "unknown params and invalid values return 400 in the requested format",

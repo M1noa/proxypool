@@ -25,12 +25,15 @@ function guessFormat(url: URL): Format {
 
 async function handleList(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+
+  // bare /list: full upstream proxies.json, untouched
+  const bare = url.search === "";
   const spec = parseParams(url);
 
   // random order is never cached — every call must reshuffle
   const cacheable = spec.sort !== "random";
   const cacheKey = new Request(
-    `${url.origin}/list?${canonicalQuery(spec)}`,
+    bare ? `${url.origin}/list` : `${url.origin}/list?${canonicalQuery(spec)}`,
     { method: "GET" },
   );
   const cache = caches.default;
@@ -46,16 +49,17 @@ async function handleList(request: Request, env: Env, ctx: ExecutionContext): Pr
 
   const dataset = await getDataset(env);
   const records = applyFilters(dataset.records, spec);
-  const body = render(records, spec);
+  const body = bare ? dataset.raw : render(records, spec);
+  const count = records.length;
 
   const dataAgeSec = Math.max(0, Math.round((Date.now() - dataset.fetchedAt) / 1000));
   const res = new Response(body, {
     status: 200,
     headers: {
-      "Content-Type": CONTENT_TYPES[spec.format],
+      "Content-Type": bare ? CONTENT_TYPES.json : CONTENT_TYPES[spec.format],
       "Cache-Control": `public, max-age=${env.CACHE_TTL_SECONDS}`,
       "X-Cache": "MISS",
-      "X-Proxy-Count": String(records.length),
+      "X-Proxy-Count": String(count),
       "X-Data-Age": String(dataAgeSec),
     },
   });
