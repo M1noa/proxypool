@@ -17,12 +17,10 @@ import (
 //
 // source_meta values come from internal/extract, decoded with UseNumber so a
 // json.Number renders using its original source text rather than float64's
-// reformatting. its keys are sorted alphabetically. python emits them in dict
-// insertion order, but go's map iteration upstream is unordered, so sorting is
-// what makes the file deterministic. the two agree on every published record
-// today: only goodips declares extract.source_meta, and it declares one key.
-// the six sources with a top-level source_meta hit a python bug that drops it
-// entirely, so fixing that bug is what would first make the orders differ.
+// reformatting. its keys are sorted alphabetically because the map they arrive
+// in has no order of its own; python emitted them in the order each source
+// declared them, which is the one place this file's bytes differ from what
+// python wrote.
 func Encode(records []*Record) []byte {
 	var b strings.Builder
 	writeArray(&b, records, 0, func(b *strings.Builder, r *Record, ind int) {

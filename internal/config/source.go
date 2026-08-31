@@ -124,6 +124,27 @@ type Extract struct {
 	SourceMeta map[string]Spec `json:"source_meta"`
 }
 
+// EffectiveExtract returns the extraction rules with a top-level source_meta
+// folded in. proxifly, geonode, nodemaven, roundproxies, proxiware and
+// proxyscrape declare theirs at the source level, and lib/parse.py only ever
+// read extract.source_meta, so their city/isp/org/score metadata never reached
+// the output. extract.source_meta wins on a key collision; no source declares
+// both today.
+func (s *Source) EffectiveExtract() *Extract {
+	if len(s.SourceMeta) == 0 {
+		return &s.Extract
+	}
+	ex := s.Extract
+	ex.SourceMeta = make(map[string]Spec, len(s.SourceMeta)+len(s.Extract.SourceMeta))
+	for k, v := range s.SourceMeta {
+		ex.SourceMeta[k] = v
+	}
+	for k, v := range s.Extract.SourceMeta {
+		ex.SourceMeta[k] = v
+	}
+	return &ex
+}
+
 // RowSel is the row selector with python's "tr" default applied.
 func (e Extract) RowSel() string {
 	if e.RowSelector == "" {
@@ -213,9 +234,8 @@ type Source struct {
 
 	BudgetS *int `json:"budget_s"`
 
-	// declared at the top level by 6 sources, but lib/parse.py only ever reads
-	// extract.source_meta, so today these are silently dropped. captured here
-	// so the fix is a one-line change rather than a schema change.
+	// declared at the top level by 6 sources; folded into the extraction rules
+	// by EffectiveExtract.
 	SourceMeta map[string]Spec `json:"source_meta"`
 
 	// read by lib/util.request and lib/parse.fetch_source but set by no source

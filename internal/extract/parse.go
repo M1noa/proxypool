@@ -15,7 +15,7 @@ import (
 // defaults carries the const fields from a urls[] entry. extracted values win,
 // but an empty extracted value never clobbers a default.
 func ParseContent(src *config.Source, content string, defaults map[string]any) ([]*Record, error) {
-	ex := &src.Extract
+	ex := src.EffectiveExtract()
 	proto := src.Protocol
 
 	var raws []map[string]any
@@ -62,7 +62,7 @@ func ParseContent(src *config.Source, content string, defaults map[string]any) (
 // parseEmbedded handles a json payload carried inside a <script> tag. the
 // blob is extracted with html tooling and then read with the json rules.
 func parseEmbedded(src *config.Source, content string, defaults map[string]any) ([]*Record, error) {
-	ex := &src.Extract
+	ex := src.EffectiveExtract()
 	emb := ex.EmbeddedJSON
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(content))
