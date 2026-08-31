@@ -60,6 +60,8 @@ type Options struct {
 	Speedtest   bool
 	PrevAlive   map[AliveKey]bool
 	Logf        func(format string, args ...any)
+	// Timeout caps one probe. zero uses the 5s default.
+	Timeout time.Duration
 }
 
 // job pairs a record with the plan check_all decided to run for it, after
@@ -149,7 +151,7 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 	// shuffle so dead-heavy source clusters don't skew the running rate/eta
 	rand.Shuffle(len(kept), func(i, j int) { kept[i], kept[j] = kept[j], kept[i] })
 
-	c := &Checker{}
+	c := &Checker{timeout: opts.Timeout}
 	if err := c.calibrate(ctx); err != nil {
 		logf("checker: %v", err)
 		return nil, Stats{}, nil, skipped
