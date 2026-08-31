@@ -17,6 +17,9 @@ SPEEDTEST_CONN = 4
 # all proxies ping the same endpoint (google generate_204); 5s keeps the run
 # moving — most dead proxies hang until timeout, and they add up fast
 TIMEOUT = 5
+PROBE_CAP = TIMEOUT + 2   # hard ceiling on one probe, aiohttp's own can slip
+RECORD_CAP = 25           # gate + parallel probes + anonymity echo, with slack
+CLOSE_CAP = 30            # tearing down the shared session
 
 ANON_KEYS = ("via", "x-forwarded-for", "forwarded", "client-ip")
 
@@ -29,6 +32,26 @@ async def _fetch(session, url, proxy=None):
     async with session.get(url, proxy=proxy) as resp:
         resp.raise_for_status()
         return await resp.read()
+
+
+_ABANDONED = set()  # keep refs so the gc doesn't collect / warn on them
+
+
+async def _bounded(coro, timeout):
+    """run coro under a cap that always returns, raising TimeoutError.
+
+    asyncio.wait_for() awaits the cancelled task's teardown, so a coroutine
+    that blocks while cleaning up (aiohttp_socks closing a wedged connector,
+    a half-open socket in wait_closed) hangs the caller right along with it.
+    abandon the task instead of waiting on it."""
+    task = asyncio.ensure_future(coro)
+    done, _ = await asyncio.wait((task,), timeout=timeout)
+    if not done:
+        task.cancel()
+        _ABANDONED.add(task)
+        task.add_done_callback(_ABANDONED.discard)
+        raise asyncio.TimeoutError
+    return task.result()
 
 
 def _derive_concurrency(mbps):
@@ -71,15 +94,12 @@ async def _tcp_open(ip, port):
     claim that fails this once is skipped entirely instead of paying TIMEOUT
     again per claimed protocol."""
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(ip, int(port)), TIMEOUT)
+        _, writer = await _bounded(asyncio.open_connection(ip, int(port)), TIMEOUT)
     except Exception:
         return False
+    # close without awaiting wait_closed(): on a half-open socket that never
+    # sends its fin it blocks forever, and nothing here needs the teardown
     writer.close()
-    try:
-        await writer.wait_closed()
-    except Exception:
-        pass
     return True
 
 
@@ -161,9 +181,8 @@ class Checker:
 
         # the socks handshake / CONNECT tunnel can hang past aiohttp's own
         # timeout on a peer that accepts the TCP connection but never speaks
-        # the protocol — a hard wait_for guarantees this coroutine returns,
-        # so one dead proxy can't stall the whole worker pool's gather()
-        await asyncio.wait_for(do(), TIMEOUT + 2)
+        # the protocol, so one dead proxy could stall the whole worker pool
+        await _bounded(do(), PROBE_CAP)
         return (time.monotonic() - t0) * 1000
 
     @staticmethod
@@ -188,7 +207,8 @@ class Checker:
     async def _echo_anonymity(self, ip, port, session):
         for u in ECHO_URLS:
             try:
-                raw = await _fetch(session, u, proxy=f"http://{ip}:{port}")
+                raw = await _bounded(
+                    _fetch(session, u, proxy=f"http://{ip}:{port}"), PROBE_CAP)
                 return self._classify_anon(raw.decode(errors="replace"), self.my_ip)
             except Exception:
                 continue
@@ -344,7 +364,7 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
                     return
                 rec = pool_records[i]
                 try:
-                    ok = await c._check_one(rec, session)
+                    ok = await _bounded(c._check_one(rec, session), RECORD_CAP)
                 except Exception:
                     ok = False
                 out[i] = ok
@@ -366,14 +386,18 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
 
     reporter = asyncio.ensure_future(
         _progress_reporter(len(records), counters, concurrency=concurrency))
+    revived = 0
     try:
         try:
             await run_pool(records, results, counters)
         finally:
             reporter.cancel()
+        # phase markers: the reporter stops here, so without them a stall in
+        # anything below looks identical to a stall in the pool
+        print(f"pool done: {counters['checked']}/{len(records)} checked",
+              flush=True)
 
         # second chance: recently-alive proxies that just failed get one re-probe
-        revived = 0
         prev = set(prev_alive or ())
         retry_idx = [i for i, r in enumerate(records)
                      if not results[i] and (r["ip"], r["port"]) in prev]
@@ -389,8 +413,12 @@ async def check_all(records, concurrency=0, skip=(), speedtest=True, prev_alive=
                     revived += 1
             print(f"second-chance: revived {revived}/{len(retry_idx)}", flush=True)
     finally:
-        await session.close()
+        try:
+            await _bounded(session.close(), CLOSE_CAP)
+        except Exception:
+            print("session close timed out, continuing", flush=True)
 
+    print("aggregating outcomes", flush=True)
     outcomes = [
         (r["ip"], r["port"], proto, rt is not None, rt)
         for r in records
