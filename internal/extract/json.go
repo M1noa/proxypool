@@ -8,11 +8,11 @@ import (
 	"github.com/M1noa/proxypool/internal/config"
 )
 
-// decodeJSON unmarshals with UseNumber so numeric literals keep the text they
+// DecodeJSON unmarshals with UseNumber so numeric literals keep the text they
 // were written with. it matters twice: `int(str(port))` fails on "8080.0" and
 // succeeds on "8080", and source_meta values are re-serialized, where a
 // float64 round-trip would turn 3 into 3.0.
-func decodeJSON(s string) (any, error) {
+func DecodeJSON(s string) (any, error) {
 	d := json.NewDecoder(bytes.NewReader([]byte(s)))
 	d.UseNumber()
 	var v any
@@ -68,16 +68,16 @@ func extractJSON(items []any, ex *config.Extract) ([]map[string]any, error) {
 			}
 			// the string form is a bare path and the object form is
 			// {"path": …, "map": …}; JSONPath collapses the two.
-			v := dig(it, f.spec.JSONPath())
+			v := Dig(it, f.spec.JSONPath())
 			if f.spec.HasMap() {
 				// dict.get, so an unmapped value becomes None rather than
 				// passing through
-				v = f.spec.Map[pystr(v)]
+				v = f.spec.Map[PyStr(v)]
 			}
 			o[f.name] = v
 		}
 		for mk, mv := range ex.SourceMeta {
-			o["meta_"+mk] = dig(it, mv.JSONPath())
+			o["meta_"+mk] = Dig(it, mv.JSONPath())
 		}
 		out = append(out, o)
 	}
@@ -89,7 +89,7 @@ func extractJSON(items []any, ex *config.Extract) ([]map[string]any, error) {
 func rootItems(doc any, root string) []any {
 	items := doc
 	if root != "" {
-		items = dig(doc, root)
+		items = Dig(doc, root)
 	}
 	if items == nil {
 		items = doc
@@ -106,12 +106,12 @@ func rootItems(doc any, root string) []any {
 func rootItemsEmbedded(doc any, root string) []any {
 	items := doc
 	if root != "" {
-		items = dig(doc, root)
+		items = Dig(doc, root)
 	}
 	if list, ok := items.([]any); ok {
 		return list
 	}
-	if !truthy(items) {
+	if !Truthy(items) {
 		return nil
 	}
 	return []any{items}

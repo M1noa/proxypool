@@ -23,7 +23,7 @@ func ParseContent(src *config.Source, content string, defaults map[string]any) (
 	switch src.Fmt() {
 	case "json":
 		var doc any
-		if doc, err = decodeJSON(content); err != nil {
+		if doc, err = DecodeJSON(content); err != nil {
 			return nil, err
 		}
 		raws, err = extractJSON(rootItems(doc, ex.Root), ex)
@@ -91,7 +91,7 @@ func parseEmbedded(src *config.Source, content string, defaults map[string]any) 
 			}
 			text = m[1]
 		}
-		v, err := decodeJSON(pyStrip(text))
+		v, err := DecodeJSON(PyStrip(text))
 		if err != nil {
 			return true
 		}

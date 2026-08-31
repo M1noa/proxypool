@@ -37,12 +37,12 @@ func (r *Record) Key() string {
 // normRecord ports lib/parse._norm_record. it returns nil where python
 // returns None: a bogus host, a localhost name, or a port that will not parse.
 func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Record {
-	ip := pyStrip(strOr(raw["ip"]))
+	ip := PyStrip(strOr(raw["ip"]))
 	// a combined "ip:port" field. one colon only, so ipv6 is left alone.
-	if !truthy(raw["port"]) && strings.Count(ip, ":") == 1 {
+	if !Truthy(raw["port"]) && strings.Count(ip, ":") == 1 {
 		host, port, _ := strings.Cut(ip, ":")
-		ip = pyStrip(host)
-		raw["port"] = pyStrip(port)
+		ip = PyStrip(host)
+		raw["port"] = PyStrip(port)
 	}
 	low := strings.ToLower(ip)
 	if low == "localhost" || strings.HasSuffix(low, ".localhost") {
@@ -51,7 +51,7 @@ func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 	if ip != "" && isBogusIP(ip) {
 		return nil
 	}
-	port, err := strconv.Atoi(pyStrip(strOr(raw["port"])))
+	port, err := strconv.Atoi(PyStrip(strOr(raw["port"])))
 	if err != nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 
 	// protocols
 	var protos []string
-	if p := raw["protocols"]; truthy(p) {
+	if p := raw["protocols"]; Truthy(p) {
 		switch t := p.(type) {
 		case string:
 			for _, x := range reProtosSplit.Split(t, -1) {
@@ -81,7 +81,7 @@ func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 				protos = append(protos, parseProtocol(x)...)
 			}
 		}
-	} else if p := raw["protocol"]; truthy(p) {
+	} else if p := raw["protocol"]; Truthy(p) {
 		protos = append(protos, parseProtocol(p)...)
 	}
 	if len(protos) == 0 && defaultProto != "" {
@@ -96,22 +96,22 @@ func normRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 	// country. rune counts, not byte counts: python's len() and isalpha() are
 	// both unicode-aware, so a two-character non-latin string lands in the
 	// iso-code branch there too.
-	code := pyStrip(strOr(raw["country"]))
-	name := pyStrip(strOr(raw["country_name"]))
+	code := PyStrip(strOr(raw["country"]))
+	name := PyStrip(strOr(raw["country_name"]))
 	if utf8.RuneCountInString(code) == 2 && isAlpha(code) {
 		rec.Country = strings.ToUpper(code)
 	} else if code != "" && name == "" {
 		// a full name landed in the country slot
 		name = code
 	}
-	rec.CountryName = pyStrip(name)
+	rec.CountryName = PyStrip(name)
 	if rec.Country == "" && src.Country != "" {
 		rec.Country = firstRunes(strings.ToUpper(src.Country), 2)
 	}
 
 	// anonymity / https / response time
 	anon := raw["anonymity"]
-	if !truthy(anon) {
+	if !Truthy(anon) {
 		anon = src.Anonymity
 	}
 	rec.Anonymity = normalizeAnon(anon)
