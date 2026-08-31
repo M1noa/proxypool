@@ -68,6 +68,16 @@ type Checker struct {
 	myIP     string
 	mbps     float64
 	googleIP net.IP
+	// timeout caps one probe. zero means timeoutDefault. calibration
+	// deliberately ignores it: it measures our own link, not a proxy.
+	timeout time.Duration
+}
+
+func (c *Checker) tmo() time.Duration {
+	if c.timeout > 0 {
+		return c.timeout
+	}
+	return timeoutDefault
 }
 
 // probeOutcome is one protocol's result for one record: RT is the calibrated
@@ -199,7 +209,7 @@ func (c *Checker) measureMbps(ctx context.Context) float64 {
 
 // tcpOpen is _tcp_open: a bare connect-then-close reachability check.
 func (c *Checker) tcpOpen(ctx context.Context, ip string, port int) bool {
-	pctx, cancel := context.WithTimeout(ctx, timeoutDefault)
+	pctx, cancel := context.WithTimeout(ctx, c.tmo())
 	defer cancel()
 	var d net.Dialer
 	conn, err := d.DialContext(pctx, "tcp", net.JoinHostPort(ip, strconv.Itoa(port)))
@@ -214,7 +224,7 @@ func (c *Checker) tcpOpen(ctx context.Context, ip string, port int) bool {
 // raw elapsed milliseconds. despite _probe's python docstring, the value is
 // not calibrated — checkOne subtracts the baseline itself.
 func (c *Checker) probe(ctx context.Context, ip string, port int, proto string) (float64, error) {
-	pctx, cancel := context.WithTimeout(ctx, timeoutDefault)
+	pctx, cancel := context.WithTimeout(ctx, c.tmo())
 	defer cancel()
 
 	proxyAddr := net.JoinHostPort(ip, strconv.Itoa(port))
@@ -295,7 +305,7 @@ func classifyAnon(text, myIP string) string {
 
 // echoAnonymity is _echo_anonymity: fetch each echo url through the proxy's
 // http protocol until one succeeds, and classify that one. "" if all fail.
-func echoAnonymity(ctx context.Context, ip string, port int, myIP string) string {
+func echoAnonymity(ctx context.Context, ip string, port int, myIP string, timeout time.Duration) string {
 	proxyAddr := net.JoinHostPort(ip, strconv.Itoa(port))
 	tr := &http.Transport{
 		DisableKeepAlives: true,
@@ -305,7 +315,7 @@ func echoAnonymity(ctx context.Context, ip string, port int, myIP string) string
 	client := &http.Client{Transport: tr}
 
 	for _, u := range echoURLs {
-		pctx, cancel := context.WithTimeout(ctx, timeoutDefault)
+		pctx, cancel := context.WithTimeout(ctx, timeout)
 		text, err := fetchOK(pctx, client, u)
 		cancel()
 		if err == nil {
@@ -378,7 +388,7 @@ func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string
 		r.HTTPS = true
 	}
 	if r.Anonymity == "" && !r.Provided["anonymity"] && slices.Contains(protos, "http") {
-		r.Anonymity = echoAnonymity(ctx, r.IP, r.Port, c.myIP)
+		r.Anonymity = echoAnonymity(ctx, r.IP, r.Port, c.myIP, c.tmo())
 	}
 	return true, outcomes
 }
