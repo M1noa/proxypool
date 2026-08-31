@@ -124,7 +124,8 @@ func raiseFDLimit(concurrency int) {
 // dead ones, and report run-level stats plus every outcome actually probed.
 // ctx's deadline, if any, is check_all's `deadline` backstop — the pool is
 // cut short there and whatever was probed so far is still returned.
-func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (alive []*extract.Record, stats Stats, outcomes []Outcome, skipped int) {
+func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (alive []*extract.Record, stats Stats, outcomes []Outcome) {
+	var skipped int
 	logf := opts.Logf
 	if logf == nil {
 		logf = func(string, ...any) {}
@@ -154,7 +155,7 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 	c := &Checker{timeout: opts.Timeout}
 	if err := c.calibrate(ctx); err != nil {
 		logf("checker: %v", err)
-		return nil, Stats{}, nil, skipped
+		return nil, Stats{Skipped: skipped}, nil
 	}
 
 	concurrency := opts.Concurrency
@@ -242,7 +243,7 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 		Revived:    revived,
 		BaselineMS: pyfmt.Round(c.baseline),
 	}
-	return alive, stats, outcomes, skipped
+	return alive, stats, outcomes
 }
 
 // runPool is run_pool: concurrency workers pull indices off a shared cursor
