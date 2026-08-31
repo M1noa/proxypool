@@ -1,0 +1,139 @@
+{
+  "name": "proxies.minoa.cat",
+  "version": "1.0.0",
+  "description": "filtered proxy lists from the proxypool output branch, cached at the edge",
+  "base_url": "https://proxies.minoa.cat",
+  "endpoint": {
+    "path": "/list",
+    "methods": ["GET", "HEAD"],
+    "cache": "responses cached 30s at the edge; data refreshes hourly upstream",
+    "notes": [
+      "multi-value params accept repetition (?type=a&type=b) or commas (?type=a,b)",
+      "'any' or 'all' as a value clears that filter",
+      "unknown params and invalid values return 400 in the requested format",
+      "sort=random is never cached"
+    ]
+  },
+  "params": {
+    "type": {
+      "alias": "protocol",
+      "multi": true,
+      "values": ["http", "https", "socks4", "socks5"],
+      "default": "all",
+      "description": "proxy supports at least one selected protocol"
+    },
+    "anonymity": {
+      "multi": true,
+      "values": ["elite", "anonymous", "transparent", "unknown"],
+      "default": "all",
+      "description": "unknown = no anonymity info in the data"
+    },
+    "country": {
+      "multi": true,
+      "values": "ISO 3166-1 alpha-2 codes, case-insensitive",
+      "example": "us,de,nl",
+      "default": "all"
+    },
+    "port": { "multi": true, "values": "integers 1-65535", "example": "80,443,8080", "default": "all" },
+    "port_min": { "values": "integer 1-65535", "default": null },
+    "port_max": { "values": "integer 1-65535", "default": null },
+    "asn": { "multi": true, "values": "AS numbers", "example": "13335,15169", "default": "all" },
+    "as_org": { "values": "case-insensitive substring of the AS org name", "example": "cloudflare", "default": null },
+    "source": { "multi": true, "values": "source names from the proxypool sources list", "example": "proxifly,hookzof", "default": "all" },
+    "ip_version": { "values": ["ipv4", "ipv6"], "default": "all" },
+    "ip_type": {
+      "multi": true,
+      "values": ["hosting", "business", "isp", "education_research", "government_admin", "unknown"],
+      "default": "all"
+    },
+    "https": { "values": ["true", "false"], "default": "both", "description": "whether the proxy supports tls tunneling" },
+    "min_reliability": { "values": "0..1", "default": null, "description": "lifetime check success rate" },
+    "min_quality": { "values": "0..1", "default": null, "description": "composite quality score from proxypool history" },
+    "response_min": { "values": "ms integer", "default": null },
+    "response_max": { "values": "ms integer", "default": null },
+    "first_seen_after": { "values": "ISO 8601 datetime", "example": "2026-08-30T00:00:00Z", "default": null },
+    "last_seen_after": { "values": "ISO 8601 datetime", "default": null },
+    "sort": {
+      "values": ["response", "reliability", "quality", "first_seen", "last_seen", "port", "country", "asn", "random"],
+      "default": "response"
+    },
+    "order": {
+      "values": ["asc", "desc"],
+      "default": "asc for response, desc for everything else"
+    },
+    "limit": { "values": "integer, 0 = no limit", "default": 0, "max": 1000000 },
+    "format": {
+      "values": ["txt", "json", "jsonl", "csv"],
+      "default": "txt"
+    }
+  },
+  "formats": {
+    "txt": {
+      "content_type": "text/plain; charset=utf-8",
+      "rule": "exactly one type selected -> bare ip:port lines. zero or 2+ types -> protocol://ip:port, one line per matched protocol per proxy."
+    },
+    "json": {
+      "content_type": "application/json; charset=utf-8",
+      "rule": "array of full proxy records with every field from proxies.json"
+    },
+    "jsonl": {
+      "content_type": "application/x-ndjson; charset=utf-8",
+      "rule": "one full record per line"
+    },
+    "csv": {
+      "content_type": "text/csv; charset=utf-8",
+      "rule": "header row + all fields. array fields (protocols, sources) joined with ';'. RFC 4180 quoting."
+    }
+  },
+  "record_fields": {
+    "ip": "string",
+    "port": "int",
+    "protocols": "string[]",
+    "ip_version": "ipv4 | ipv6",
+    "country": "iso2 or empty",
+    "anonymity": "elite | anonymous | transparent | empty",
+    "https": "boolean",
+    "asn": "int",
+    "as_org": "string",
+    "ip_type": "hosting | business | isp | education_research | government_admin | empty",
+    "response_time_ms": "int, ema-smoothed",
+    "response_time_raw_ms": "int",
+    "reliability": "0..1",
+    "quality": "0..1",
+    "checks_total": "int",
+    "checks_ok": "int",
+    "sources": "string[]",
+    "first_seen": "ISO 8601",
+    "last_seen": "ISO 8601",
+    "last_checked": "ISO 8601"
+  },
+  "errors": {
+    "behavior": "errors render in the requested format with the correct http status",
+    "codes": {
+      "400": "bad_request — unknown param, invalid value, impossible range",
+      "404": "unknown path",
+      "405": "method_not_allowed",
+      "500": "internal_error",
+      "502": "upstream_unreachable | upstream_error | upstream_bad_json | upstream_bad_shape"
+    },
+    "shapes": {
+      "txt": "error <status> (<code>): <message>",
+      "json": "{\"error\": {\"status\": 400, \"code\": \"...\", \"message\": \"...\"}}",
+      "jsonl": "same object, single line",
+      "csv": "error,message header + row"
+    }
+  },
+  "examples": [
+    "https://proxies.minoa.cat/list?type=socks4&type=socks5&format=txt&sort=response&limit=0",
+    "https://proxies.minoa.cat/list?type=http&anonymity=elite&country=us,de&format=json&limit=100",
+    "https://proxies.minoa.cat/list?type=socks5&min_reliability=0.9&response_max=1000&format=csv",
+    "https://proxies.minoa.cat/list?ip_type=isp&https=true&sort=quality&format=jsonl"
+  ],
+  "response_headers": {
+    "X-Cache": "HIT | MISS",
+    "X-Proxy-Count": "number of records returned",
+    "X-Data-Age": "seconds since the dataset was fetched from upstream",
+    "Cache-Control": "public, max-age=30"
+  },
+  "source": "https://github.com/M1noa/proxypool"
+}

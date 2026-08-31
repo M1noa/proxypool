@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProxyPool — proxies.minoa.cat</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐱</text></svg>">
+    <meta name="description" content="fast filtered proxy lists, served from the edge. txt, json, csv. free, cached, updated hourly.">
+    <meta name="author" content="M1noa">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#FFC0CB">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://proxies.minoa.cat/">
+    <meta property="og:title" content="ProxyPool — proxies.minoa.cat">
+    <meta property="og:description" content="fast filtered proxy lists, served from the edge. txt, json, csv. free, cached, updated hourly.">
+    <meta property="og:site_name" content="proxies.minoa.cat">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:creator" content="@M1noa">
+    <link rel="canonical" href="https://proxies.minoa.cat/">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+</head>
+<body>
+    <div class="noise-bg"></div>
+    <div class="container">
+        <header>
+            <h1>ProxyPool</h1>
+            <p>fast filtered proxy lists, served from the edge</p>
+        </header>
+
+        <main>
+            <!-- the form works with js disabled: it submits a plain GET to /list -->
+            <form id="generator" action="/list" method="get">
+
+                <section class="card">
+                    <h2>type</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="t-http" name="type" value="http">
+                        <label for="t-http">http</label>
+                        <input type="checkbox" id="t-https" name="type" value="https">
+                        <label for="t-https">https</label>
+                        <input type="checkbox" id="t-socks4" name="type" value="socks4">
+                        <label for="t-socks4">socks4</label>
+                        <input type="checkbox" id="t-socks5" name="type" value="socks5" checked>
+                        <label for="t-socks5">socks5</label>
+                    </div>
+                    <p class="hint">none selected = all types. txt shows <code>proto://ip:port</code> unless exactly one type is picked.</p>
+                </section>
+
+                <section class="card">
+                    <h2>format</h2>
+                    <div class="pills">
+                        <input type="radio" id="f-txt" name="format" value="txt" checked>
+                        <label for="f-txt">txt</label>
+                        <input type="radio" id="f-json" name="format" value="json">
+                        <label for="f-json">json</label>
+                        <input type="radio" id="f-csv" name="format" value="csv">
+                        <label for="f-csv">csv</label>
+                        <input type="radio" id="f-jsonl" name="format" value="jsonl">
+                        <label for="f-jsonl">jsonl</label>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>anonymity</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="a-elite" name="anonymity" value="elite">
+                        <label for="a-elite">elite</label>
+                        <input type="checkbox" id="a-anon" name="anonymity" value="anonymous">
+                        <label for="a-anon">anonymous</label>
+                        <input type="checkbox" id="a-trans" name="anonymity" value="transparent">
+                        <label for="a-trans">transparent</label>
+                        <input type="checkbox" id="a-unk" name="anonymity" value="unknown">
+                        <label for="a-unk">unknown</label>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>sort &amp; limit</h2>
+                    <div class="grid-2">
+                        <label class="field">sort
+                            <select name="sort">
+                                <option value="response" selected>response time</option>
+                                <option value="reliability">reliability</option>
+                                <option value="quality">quality</option>
+                                <option value="first_seen">first seen</option>
+                                <option value="last_seen">last seen</option>
+                                <option value="port">port</option>
+                                <option value="country">country</option>
+                                <option value="asn">asn</option>
+                                <option value="random">random</option>
+                            </select>
+                        </label>
+                        <label class="field">order
+                            <select name="order">
+                                <option value="" selected>auto</option>
+                                <option value="asc">asc</option>
+                                <option value="desc">desc</option>
+                            </select>
+                        </label>
+                        <label class="field">limit (0 = all)
+                            <input type="number" name="limit" min="0" max="1000000" value="0">
+                        </label>
+                        <label class="field">https only
+                            <select name="https">
+                                <option value="" selected>both</option>
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                            </select>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>network</h2>
+                    <div class="grid-2">
+                        <label class="field">country (iso2, comma-sep)
+                            <input type="text" name="country" placeholder="us, de, nl" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                        <label class="field">ports (comma-sep)
+                            <input type="text" name="port" placeholder="80, 8080, 3128" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                        <label class="field">port min
+                            <input type="number" name="port_min" min="1" max="65535" placeholder="1">
+                        </label>
+                        <label class="field">port max
+                            <input type="number" name="port_max" min="1" max="65535" placeholder="65535">
+                        </label>
+                        <label class="field">asn (comma-sep)
+                            <input type="text" name="asn" placeholder="13335, 15169" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                        <label class="field">as org (substring)
+                            <input type="text" name="as_org" placeholder="cloudflare" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                        <label class="field">ip version
+                            <select name="ip_version">
+                                <option value="" selected>any</option>
+                                <option value="ipv4">ipv4</option>
+                                <option value="ipv6">ipv6</option>
+                            </select>
+                        </label>
+                        <label class="field">sources (comma-sep)
+                            <input type="text" name="source" placeholder="proxifly, hookzof" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                    </div>
+                    <div class="pills" style="margin-top: 0.9rem">
+                        <input type="checkbox" id="it-hosting" name="ip_type" value="hosting">
+                        <label for="it-hosting">hosting</label>
+                        <input type="checkbox" id="it-isp" name="ip_type" value="isp">
+                        <label for="it-isp">isp</label>
+                        <input type="checkbox" id="it-business" name="ip_type" value="business">
+                        <label for="it-business">business</label>
+                        <input type="checkbox" id="it-edu" name="ip_type" value="education_research">
+                        <label for="it-edu">education/research</label>
+                        <input type="checkbox" id="it-gov" name="ip_type" value="government_admin">
+                        <label for="it-gov">government/admin</label>
+                        <input type="checkbox" id="it-unk" name="ip_type" value="unknown">
+                        <label for="it-unk">unknown</label>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>quality</h2>
+                    <div class="grid-2">
+                        <label class="field">min reliability (0–1)
+                            <input type="number" name="min_reliability" min="0" max="1" step="0.05" placeholder="0">
+                        </label>
+                        <label class="field">min quality (0–1)
+                            <input type="number" name="min_quality" min="0" max="1" step="0.05" placeholder="0">
+                        </label>
+                        <label class="field">response min (ms)
+                            <input type="number" name="response_min" min="0" placeholder="0">
+                        </label>
+                        <label class="field">response max (ms)
+                            <input type="number" name="response_max" min="0" placeholder="5000">
+                        </label>
+                        <label class="field">first seen after
+                            <input type="datetime-local" name="first_seen_after">
+                        </label>
+                        <label class="field">last seen after
+                            <input type="datetime-local" name="last_seen_after">
+                        </label>
+                    </div>
+                </section>
+
+                <section class="card url-card">
+                    <h2>your url</h2>
+                    <code id="url-preview" class="url-preview">https://proxies.minoa.cat/list?type=socks5&amp;format=txt&amp;sort=response&amp;limit=0</code>
+                    <div class="url-actions">
+                        <button type="button" id="copy-btn" class="action-btn">copy</button>
+                        <button type="submit" class="action-btn" id="open-btn">open</button>
+                    </div>
+                    <noscript>
+                        <p class="hint">javascript is off — the form still works, <strong>open</strong> takes you straight to your list. base url: <code>https://proxies.minoa.cat/list</code> · full spec: <a href="/docs.json">/docs.json</a></p>
+                    </noscript>
+                </section>
+            </form>
+        </main>
+
+        <footer>
+            <a href="https://github.com/M1noa/proxypool" class="footer-link" target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 16 16" fill="currentColor" height="1em" width="1em"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
+                <span>GitHub</span>
+            </a>
+            <a href="/docs.json" class="footer-link">
+                <span>API Docs</span>
+            </a>
+        </footer>
+    </div>
+
+    <div id="notification-container" aria-live="polite" aria-atomic="false"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

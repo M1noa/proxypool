@@ -16,6 +16,6 @@
 - [ ] public/docs.json — full api spec
 - [ ] tsc --noEmit clean
 - [ ] wrangler dev + curl test matrix (every filter, format, error)
-- [ ] wrangler deploy
+- [ ] wrangler deploy (only if cloudflare auth exists locally)
 - [ ] custom domain proxies.minoa.cat
-- [ ] push branch to github
+- [ ] ~~push branch to github~~ — user: do not push
