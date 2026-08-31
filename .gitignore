@@ -2,7 +2,6 @@
 __pycache__/
 *.pyc
 AGENT.md
-AGENT.md
 ENDPOINTS.md
 sources.jsonc.bak1
-output/history.db*history.db*
+output/

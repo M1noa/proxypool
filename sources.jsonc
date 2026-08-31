@@ -2012,12 +2012,13 @@
       "name": "proxypool",
       "display": "proxypool (this repo)",
       "home": "https://github.com/M1noa/proxypool",
-      "url": "https://raw.githubusercontent.com/M1noa/proxypool/main/output/all.txt",
-      "format": "text",
+      "url": "https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json",
+      "format": "json",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "protocol": "http"
+        "ip": "ip",
+        "port": "port",
+        "protocols": "protocols"
+      }
     }
   ]
 }

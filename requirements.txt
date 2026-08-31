@@ -6,3 +6,4 @@ aiohttp-socks
 maxminddb
 quickjs
 psutil
+duckdb

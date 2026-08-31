@@ -1,6 +1,5 @@
-"""sqlite-backed per-protocol proxy state: ema reliability/quality scoring"""
+"""duckdb-backed per-protocol proxy state: ema reliability/quality scoring"""
 import random
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,41 +17,43 @@ MAX_SKIP_PROB = 0.9      # always leave a 10% recheck chance
 PRUNE_DAYS = 14          # drop proxies not checked within this window, every run
 
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS proxy_state (
-    ip              TEXT NOT NULL,
+    ip              VARCHAR NOT NULL,
     port            INTEGER NOT NULL,
-    proto           TEXT NOT NULL,
+    proto           VARCHAR NOT NULL,
     fails_streak    INTEGER NOT NULL DEFAULT 0,
-    last_ok_ts      TEXT,
-    last_checked_ts TEXT,
-    first_seen_ts   TEXT,
-    rel_ema         REAL,
-    rt_ema          REAL,
+    last_ok_ts      VARCHAR,
+    last_checked_ts VARCHAR,
+    first_seen_ts   VARCHAR,
+    rel_ema         DOUBLE,
+    rt_ema          DOUBLE,
     ok_count        INTEGER NOT NULL DEFAULT 0,
     check_count     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (ip, port, proto)
-) WITHOUT ROWID;
+)
 """
 
 
 class History:
     def __init__(self, path):
-        self.db = sqlite3.connect(Path(path))
-        v = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if v != SCHEMA_VERSION:
+        import duckdb
+        self.db = duckdb.connect(str(Path(path)))
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS meta (k VARCHAR PRIMARY KEY, v VARCHAR)")
+        row = self.db.execute(
+            "SELECT v FROM meta WHERE k = 'schema_version'").fetchone()
+        if not row or int(row[0]) != SCHEMA_VERSION:
             # schema changed: history is derived data, rebuild from scratch
-            self.db.executescript(
-                "DROP TABLE IF EXISTS checks;"
-                "DROP TABLE IF EXISTS proxy_state;")
-            self.db.executescript(_SCHEMA)
-            self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            self.db.commit()
+            self.db.execute("DROP TABLE IF EXISTS proxy_state")
+            self.db.execute(_SCHEMA)
+            self.db.execute(
+                "INSERT OR REPLACE INTO meta (k, v) VALUES ('schema_version', ?)",
+                [str(SCHEMA_VERSION)])
         else:
-            self.db.executescript(_SCHEMA)
-        self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute(_SCHEMA)
 
     def state_map(self):
         """{(ip, port, proto): {fails_streak, last_ok_ts, last_checked_ts,
@@ -60,7 +61,7 @@ class History:
         rows = self.db.execute(
             "SELECT ip, port, proto, fails_streak, last_ok_ts, last_checked_ts,"
             " first_seen_ts, rel_ema, rt_ema, ok_count, check_count"
-            " FROM proxy_state")
+            " FROM proxy_state").fetchall()
         return {(ip, port, proto): {
             "fails_streak": fs, "last_ok_ts": ok, "last_checked_ts": ck,
             "first_seen_ts": fs_ts, "rel_ema": rel, "rt_ema": rt,
@@ -93,7 +94,7 @@ class History:
             "INSERT INTO proxy_state (ip, port, proto, fails_streak, last_ok_ts,"
             " last_checked_ts, first_seen_ts, rel_ema, rt_ema, ok_count,"
             " check_count) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(ip, port, proto) DO UPDATE SET"
+            " ON CONFLICT (ip, port, proto) DO UPDATE SET"
             " fails_streak=excluded.fails_streak,"
             " last_ok_ts=excluded.last_ok_ts,"
             " last_checked_ts=excluded.last_checked_ts,"
@@ -102,7 +103,6 @@ class History:
             " ok_count=excluded.ok_count,"
             " check_count=excluded.check_count",
             rows)
-        self.db.commit()
 
     def scores(self):
         """{(ip, port, proto): {reliability, quality, checks_total, checks_ok,
@@ -110,7 +110,7 @@ class History:
         out = {}
         rows = self.db.execute(
             "SELECT ip, port, proto, rel_ema, rt_ema, ok_count, check_count,"
-            " first_seen_ts, last_checked_ts FROM proxy_state")
+            " first_seen_ts, last_checked_ts FROM proxy_state").fetchall()
         for ip, port, proto, rel_ema, rt_ema, ok, total, first, last in rows:
             if not total:
                 continue
@@ -132,14 +132,14 @@ class History:
         return out
 
     def prune(self, now_ts=None):
-        """drop proxies not checked within PRUNE_DAYS, then vacuum."""
+        """drop proxies not checked within PRUNE_DAYS."""
         now = parse_ts(now_ts) if now_ts else datetime.now(timezone.utc)
         cutoff = (now - timedelta(days=PRUNE_DAYS)).strftime(TS_FMT)
         n = self.db.execute(
-            "DELETE FROM proxy_state WHERE last_checked_ts < ?",
-            (cutoff,)).rowcount
-        self.db.commit()
-        self.db.execute("VACUUM")
+            "SELECT count(*) FROM proxy_state WHERE last_checked_ts < ?",
+            [cutoff]).fetchone()[0]
+        self.db.execute("DELETE FROM proxy_state WHERE last_checked_ts < ?",
+                        [cutoff])
         return n
 
     def close(self):

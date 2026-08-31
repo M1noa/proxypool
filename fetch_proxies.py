@@ -3,7 +3,7 @@
 usage: python3 fetch_proxies.py [--no-check]
 outputs:
   output/proxies.json            all records, sorted by response time
-  output/{http,https,socks4,socks5}.txt   ip:port lines
+  output/history.duckdb          per-protocol proxy state (ema scoring)
 """
 import json
 import os
@@ -273,27 +273,6 @@ def write_outputs(records, fetched_per_source=None, sources=None):
     records = sort_records(records)
     (OUT / "proxies.json").write_text(json.dumps(records, indent=2))
 
-    buckets = {
-        "http.txt": [], "https.txt": [],
-        "socks4.txt": [], "socks5.txt": [], "all.txt": [],
-    }
-    for r in records:
-        ps = sorted(r["protocols"])
-        if not ps:
-            continue  # no protocol -> can't form ip:port lines
-        line = f"{r['ip']}:{r['port']}\n"
-        if "http" in ps:
-            buckets["http.txt"].append(line)
-        if "https" in ps or r["https"]:
-            buckets["https.txt"].append(line)
-        if "socks4" in ps:
-            buckets["socks4.txt"].append(line)
-        if "socks5" in ps:
-            buckets["socks5.txt"].append(line)
-        buckets["all.txt"].append(f"{ps[0]}://{r['ip']}:{r['port']}\n")
-    for name, lines in buckets.items():
-        (OUT / name).write_text("".join(lines))
-
     # refresh readme badges
     readme = ROOT / "README.md"
     if readme.exists():
@@ -441,7 +420,7 @@ def write_outputs(records, fetched_per_source=None, sources=None):
 
         readme.write_text(t)
 
-    return {k: len(v) for k, v in buckets.items()}
+    return len(records)
 
 
 def main():
@@ -530,7 +509,7 @@ def main():
 
         from lib.history import (History, NEW_PROXY_SCORE, skip_keys)
 
-        hist = History(OUT / "history.db")
+        hist = History(OUT / "history.duckdb")
         state = hist.state_map()
         skips = skip_keys(records, state)
         if skips:
@@ -578,10 +557,9 @@ def main():
               f"in {time.monotonic() - t0:.1f}s")
 
     t0 = time.monotonic()
-    counts = write_outputs(records, fetched_per_source, sources)
-    print(f"http={counts['http.txt']} https={counts['https.txt']} "
-          f"socks4={counts['socks4.txt']} socks5={counts['socks5.txt']} "
-          f"(written in {time.monotonic() - t0:.1f}s)")
+    n = write_outputs(records, fetched_per_source, sources)
+    print(f"wrote {n} proxies to proxies.json "
+          f"(in {time.monotonic() - t0:.1f}s)")
     print(f"total elapsed: {time.monotonic() - t_run:.1f}s")
     if errors:
         print("\nerrors:")

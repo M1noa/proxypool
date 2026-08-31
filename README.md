@@ -4,14 +4,9 @@
 ---
 
 hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
+hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
 
-| file | what |
-|---|---|
-| [http.txt](output/http.txt) / [https.txt](output/https.txt) / [socks4.txt](output/socks4.txt) / [socks5.txt](output/socks5.txt) / [all.txt](output/all.txt) | `ip:port` per line, sorted by response time |
-| [proxies.json](output/proxies.json) | full details: protocols, country, anonymity, response time, sources |
-
-sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) from [ipverse/as-metadata](https://github.com/ipverse/as-metadata) (cc0).
-
+outputs live on the auto-reset [`output`](https://github.com/M1noa/proxypool/tree/output) branch (always 1 commit, easy to clone):
 ---
 
 <!-- sources:start -->
