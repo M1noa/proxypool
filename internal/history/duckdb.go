@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"math"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 
@@ -91,6 +92,14 @@ type History struct {
 // and recreating it whenever the stored schema_version doesn't match —
 // history is derived data, safe to discard and rebuild from a fresh run.
 func Open(path string) (*History, error) {
+	// a zero-byte file is not a database duckdb will open. the workflow's
+	// restore step leaves one behind when the download 404s, so treat it the
+	// same as no file at all rather than aborting the run.
+	if st, err := os.Stat(path); err == nil && st.Size() == 0 {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+	}
 	db, err := sql.Open("duckdb", path)
 	if err != nil {
 		return nil, err

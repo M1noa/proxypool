@@ -3,6 +3,7 @@ package history
 import (
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -34,6 +35,27 @@ func TestOpenFreshDBIsEmpty(t *testing.T) {
 	}
 	if len(state) != 0 {
 		t.Errorf("StateMap on a fresh db = %v, want empty", state)
+	}
+}
+
+// the workflow's restore step leaves a zero-byte file when the download 404s,
+// which is exactly what the first real run sees.
+func TestOpenReplacesZeroByteFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.duckdb")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open on a zero-byte file: %v", err)
+	}
+	defer h.Close()
+	state, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+	if len(state) != 0 {
+		t.Errorf("StateMap = %v, want empty", state)
 	}
 }
 

@@ -30,7 +30,7 @@ jobs:
       - name: restore history
         run: |
           mkdir -p output
-          curl -fsSL -o output/history.duckdb \
+          curl -fsSL --remove-on-error -o output/history.duckdb \
             "https://raw.githubusercontent.com/${{ github.repository }}/output/history.duckdb" \
             || echo "no prior history, starting fresh"
 
