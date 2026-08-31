@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proxies-minoa-cat",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-30",
+  "assets": {
+    "directory": "./public/",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "proxies.minoa.cat", "custom_domain": true }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  },
+  "vars": {
+    "UPSTREAM_URL": "https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json",
+    "CACHE_TTL_SECONDS": "30"
+  }
+}

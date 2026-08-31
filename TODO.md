@@ -1,0 +1,21 @@
+# TODO
+
+- [x] orphan branch `pages-cache` (worktree at ../proxypool-pages-cache)
+- [x] wrangler installed globally (4.127.1)
+- [x] PLAN.md / TODO.md / AGENTS.md / README.md
+- [ ] scaffold: package.json, tsconfig.json, wrangler.jsonc, npm install
+- [ ] src/params.ts — query parsing, validation, canonicalization
+- [ ] src/data.ts — upstream fetch + 30s edge cache
+- [ ] src/filter.ts — filter/sort/limit
+- [ ] src/render.ts — txt/json/jsonl/csv + in-format errors
+- [ ] src/index.ts — router, cache layer, error boundary
+- [ ] public/index.html — url generator ui (works without js)
+- [ ] public/style.css — crypto.minoa.cat design, unused stripped
+- [ ] public/script.js — live url builder, copy, theme
+- [ ] public/noise.png — copied
+- [ ] public/docs.json — full api spec
+- [ ] tsc --noEmit clean
+- [ ] wrangler dev + curl test matrix (every filter, format, error)
+- [ ] wrangler deploy
+- [ ] custom domain proxies.minoa.cat
+- [ ] push branch to github
