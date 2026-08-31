@@ -18,8 +18,10 @@ import (
 // the same bytes. it is the differential gate for the extraction port.
 //
 // testdata/fixtures holds a gzipped capture so the gate keeps working after the
-// python is gone. regenerate with tools/capture_fixtures.py and point
-// PROXYPOOL_FIXTURES at the output to test against fresh bodies.
+// python is gone. it was produced by tools/capture_fixtures.py, which lived
+// alongside lib/ and went with it — recoverable from git history if the
+// expectations ever need regenerating against fresh bodies. point
+// PROXYPOOL_FIXTURES at another directory to replay a different capture.
 func TestParseParity(t *testing.T) {
 	dir := os.Getenv("PROXYPOOL_FIXTURES")
 	if dir == "" {

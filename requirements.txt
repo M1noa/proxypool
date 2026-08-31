@@ -1,9 +1,0 @@
-requests
-beautifulsoup4
-pycountry
-aiohttp
-aiohttp-socks
-maxminddb
-quickjs
-psutil
-duckdb
