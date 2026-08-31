@@ -9,9 +9,9 @@ CHECK_URL = "http://www.google.com/generate_204"
 ECHO_URLS = ["http://azenv.net/", "http://httpbin.org/get"]
 MYIP_URLS = ["https://api.ipify.org", "https://icanhazip.com"]
 BASELINE_PINGS = 5
-CONCURRENCY = 1536  # fallback when specs can't be read
-CONCURRENCY_MIN = 1024
-CONCURRENCY_MAX = 3600
+CONCURRENCY = 1024  # fallback when specs can't be read
+CONCURRENCY_MIN = 768
+CONCURRENCY_MAX = 2400
 SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10000000"
 SPEEDTEST_CONN = 4
 # all proxies ping the same endpoint (google generate_204); 5s keeps the run
@@ -148,14 +148,22 @@ class Checker:
     async def _probe(self, ip, port, probe, session):
         """returns calibrated ms or raises"""
         t0 = time.monotonic()
-        if probe == "https":
-            # CONNECT tunnel through the http proxy to an https target
-            await _fetch(session, "https://www.google.com/generate_204",
-                         proxy=f"http://{ip}:{port}")
-        elif probe == "http":
-            await _fetch(session, CHECK_URL, proxy=f"http://{ip}:{port}")
-        else:  # socks4 / socks5
-            await _socks_fetch(ip, port, probe, CHECK_URL)
+
+        async def do():
+            if probe == "https":
+                # CONNECT tunnel through the http proxy to an https target
+                await _fetch(session, "https://www.google.com/generate_204",
+                             proxy=f"http://{ip}:{port}")
+            elif probe == "http":
+                await _fetch(session, CHECK_URL, proxy=f"http://{ip}:{port}")
+            else:  # socks4 / socks5
+                await _socks_fetch(ip, port, probe, CHECK_URL)
+
+        # the socks handshake / CONNECT tunnel can hang past aiohttp's own
+        # timeout on a peer that accepts the TCP connection but never speaks
+        # the protocol — a hard wait_for guarantees this coroutine returns,
+        # so one dead proxy can't stall the whole worker pool's gather()
+        await asyncio.wait_for(do(), TIMEOUT + 2)
         return (time.monotonic() - t0) * 1000
 
     @staticmethod
