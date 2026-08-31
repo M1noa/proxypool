@@ -122,13 +122,11 @@ func TestUpdateReadmeTypesTable(t *testing.T) {
 	}
 }
 
-func TestUpdateReadmeCountriesOtherBugReplicated(t *testing.T) {
-	// 6 countries, each appearing a distinct number of times so most_common
-	// (frequency order) and insertion order disagree. Insertion order:
-	// A,B,C,D,E,F with counts 1,1,1,1,5,5. most_common(4) picks E,F (5 each)
-	// then two of A-D (ties keep insertion order: A,B). "other" then sums
-	// items()[4:] in INSERTION order, i.e. E,F - which are already in top -
-	// double counting them and omitting C,D entirely. That is the bug.
+func TestUpdateReadmeCountriesOther(t *testing.T) {
+	// insertion order A,B,C,D,E,F with counts 1,1,1,1,5,5, so frequency order
+	// and insertion order disagree. top(4) is E,F,A,B; "other" must be the
+	// two countries that leaves out, C+D=2. python summed the insertion-order
+	// tail instead, which double-counted E,F and dropped C,D.
 	path := writeTempReadme(t, readmeFixture)
 	var records []*Record
 	add := func(country string, n int) {
@@ -156,12 +154,11 @@ func TestUpdateReadmeCountriesOtherBugReplicated(t *testing.T) {
 			t.Errorf("countries table missing expected top row %q in: %s", want, s)
 		}
 	}
-	// other = items()[4:] in insertion order = E(5)+F(5) = 10, NOT C+D=2.
-	if !strings.Contains(s, "other</td><td "+cellStyle+">10") {
-		t.Errorf("countries 'other' must replicate the insertion-order double-count bug (want 10), got: %s", s)
+	if !strings.Contains(s, "other</td><td "+cellStyle+">2") {
+		t.Errorf("countries 'other' = want C+D = 2, got: %s", s)
 	}
 	if strings.Contains(s, ">C<") || strings.Contains(s, ">D<") {
-		t.Errorf("countries table must NOT show C or D - the bug drops them from both top and other: %s", s)
+		t.Errorf("C and D belong in 'other', not their own rows: %s", s)
 	}
 }
 
