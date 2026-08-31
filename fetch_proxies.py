@@ -28,6 +28,7 @@ ANON_RANK = {"": 0, "transparent": 1, "anonymous": 2, "elite": 3}
 REQUEUE_COOLDOWN_S = 20
 MAX_REQUEUES = 2
 GITHUB_WORKERS = 3  # raw.githubusercontent.com rate limits
+TIME_BUDGET_S = 1.95 * 3600  # hard wall-clock cap, under the 2h actions timeout
 
 
 def _is_github(src):
@@ -522,7 +523,8 @@ def main():
             check_all(records, skip=skips,
                       concurrency=args.concurrency,
                       speedtest=not args.no_speedtest,
-                      prev_alive=prev_alive))
+                      prev_alive=prev_alive,
+                      deadline=t_run + TIME_BUDGET_S))
         print(f"alive={check_stats['alive']} dead={check_stats['dead']} "
               f"skipped={check_stats['skipped']} revived={check_stats['revived']} "
               f"baseline={check_stats['baseline_ms']}ms "
