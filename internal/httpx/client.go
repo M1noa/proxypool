@@ -6,10 +6,12 @@ package httpx
 import (
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/text/encoding/htmlindex"
 
 	"github.com/M1noa/proxypool/internal/config"
@@ -76,7 +78,11 @@ func New(src *config.Source, timeout time.Duration) *Client {
 		// h2 upgrade, and urllib3 only ever speaks http/1.1. letting go
 		// negotiate h2 would change what some sources return.
 	}
-	return &Client{hc: &http.Client{Transport: tr}, headers: h}
+	// requests.Session keeps a cookie jar, and proxybros only serves its export
+	// to the session that ran the prefetch POST. without a jar that request
+	// comes back 200 with an empty body.
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	return &Client{hc: &http.Client{Transport: tr, Jar: jar}, headers: h}
 }
 
 // CloseIdle releases the client's pooled connections.
