@@ -88,20 +88,17 @@ func UpdateReadme(path string, records []*Record, fetchedPerSource map[string]in
 		}
 		countries.add(c)
 	}
-	top := countries.mostCommon()
+	ranked := countries.mostCommon()
+	top := ranked
 	if len(top) > 4 {
 		top = top[:4]
 	}
 	crows := countRows(top)
-	// replicates a pre-existing python bug verbatim: `top` is frequency
-	// order but `other` sums the insertion-order tail, so it can omit
-	// countries and double-count ones already shown in top. see plan.
-	items := countries.items()
+	// both slices come off the same frequency-ordered list, so "other" is
+	// exactly the countries top left out.
 	other := 0
-	if len(items) > 4 {
-		for _, p := range items[4:] {
-			other += p.n
-		}
+	for _, p := range ranked[len(top):] {
+		other += p.n
 	}
 	if other > 0 {
 		crows = append(crows, []string{"other", strconv.Itoa(other)})
@@ -151,11 +148,9 @@ type countPair struct {
 	n   int
 }
 
-// counter is python's collections.Counter: insertion-ordered counting.
-// mostCommon() stable-sorts by count descending (ties keep insertion order,
-// same as python's sorted()); items() returns raw insertion order with no
-// sorting - both are needed since write_outputs uses each for a different
-// purpose (see the countries "other" bug above).
+// counter is python's collections.Counter: insertion-ordered counting, with
+// mostCommon() stable-sorting by count descending so ties keep insertion
+// order, same as python's sorted().
 type counter struct {
 	order []string
 	count map[string]int
@@ -172,16 +167,11 @@ func (c *counter) add(k string) {
 	c.count[k]++
 }
 
-func (c *counter) items() []countPair {
+func (c *counter) mostCommon() []countPair {
 	pairs := make([]countPair, len(c.order))
 	for i, k := range c.order {
 		pairs[i] = countPair{k, c.count[k]}
 	}
-	return pairs
-}
-
-func (c *counter) mostCommon() []countPair {
-	pairs := c.items()
 	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i].n > pairs[j].n })
 	return pairs
 }
