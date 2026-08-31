@@ -19,17 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.11"
+          go-version-file: go.mod
+          cache: true
 
-      - name: install deps
-        run: pip install -r requirements.txt
-
-      - name: setup-geoip
-        env:
-          GEOIP_LICENSE_KEY: ${{ secrets.GEOIP_LICENSE_KEY }}
-        run: python3 lib/geoip.py
+      - name: build
+        run: CGO_ENABLED=1 go build -o bin/proxypool ./cmd/proxypool
 
       - name: restore history
         run: |
@@ -39,7 +35,7 @@ jobs:
             || echo "no prior history, starting fresh"
 
       - name: fetch, check, write outputs
-        run: python3 fetch_proxies.py
+        run: ./bin/proxypool
 
       - name: commit readme
         run: |
