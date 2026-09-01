@@ -24,8 +24,20 @@ const (
 	// volCapAlive is the alive count that earns full marks on the quality
 	// score's volume factor. log-scaled so the jump from 10 to 100 alive
 	// proxies matters far more than 900 to 1000.
+	//
+	// it stays low deliberately. the largest sources here are unchecked
+	// aggregators — gfpcom publishes 484k addresses to land 2193 alive, a 0.45%
+	// hit rate — so raising the cap would pay them for dump size and dock every
+	// curated source. saturating at 1000 means their raw volume earns exactly
+	// what a verified 1000 does, and the success-rate term then separates them.
 	volCapAlive = 1000.0
 )
+
+// selfSource is this repo's own published output, re-fetched every run so a
+// proxy no upstream happened to republish this hour is not dropped. it is the
+// only source in the table whose input arrives pre-verified, which is what the
+// success-rate branch in sourcesTable turns on.
+const selfSource = "proxypool"
 
 const cellStyle = `style="border:1px solid #30363d; padding:3px 8px; text-align:left"`
 
@@ -446,6 +458,13 @@ type sourceAgg struct {
 // (non-carried) records by source, blends success rate/speed/reliability/
 // volume into a quality score, sorts by (quality, alive) descending, and
 // bolds the #1 row.
+//
+// the weights are 0.25 success, 0.25 speed, 0.15 reliability, 0.35 volume.
+// success rate carried 0.40 and volume 0.20, which let a 57-address list at 89%
+// alive outrank a 3052-address one at 36% — a rate on a tiny sample is both
+// noisier and more flattering than the same rate on thousands, and the score was
+// paying for that twice. success keeps a quarter of the weight because it is the
+// only term that tells a curated list apart from an unchecked aggregator.
 func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []config.Source) string {
 	agg := map[string]*sourceAgg{}
 	for _, r := range records {
@@ -500,6 +519,21 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 		if fetched != 0 {
 			pct = pyfmt.Round(100 * float64(alive) / float64(fetched))
 		}
+		// the success column means "of the addresses this source handed us, how
+		// many answered" — a discovery hit rate. selfSource is the one row where
+		// that division measures something else: its input is this repo's own
+		// previous output, every address in it already probed alive, so alive over
+		// fetched is retention across one run interval rather than discovery.
+		//
+		// two honest numbers exist for that row and they bracket the truth: 100%,
+		// alive when published, and the retention rate, still alive an interval
+		// later. neither is the discovery rate the column asks for, because this
+		// source does no discovery. the midpoint is printed instead — an interval
+		// estimate, not a measurement, which is the reason it is spelled out here
+		// rather than left to look like the rate above it.
+		if s == selfSource {
+			pct = pyfmt.Round(float64(100+pct) / 2)
+		}
 
 		avgRT := 0
 		if a.rtN > 0 {
@@ -511,24 +545,11 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 			rel = a.relSum / float64(a.relN)
 		}
 
-		if s == "proxypool" {
-			sum, n := 0.0, 0
-			for _, r := range records {
-				if r.Check != nil {
-					sum += r.Check.Reliability
-					n++
-				}
-			}
-			rel = 0.5
-			if n > 0 {
-				rel = sum / float64(n)
-			}
-		}
 		relPct := reliabilityPct(rel)
 
 		speed := speedPct(avgRT)
 		volume := volumePct(alive)
-		quality := pyfmt.Round(0.4*float64(pct) + 0.25*float64(speed) + 0.15*float64(relPct) + 0.2*float64(volume))
+		quality := pyfmt.Round(0.25*float64(pct) + 0.25*float64(speed) + 0.15*float64(relPct) + 0.35*float64(volume))
 
 		top := a.countries.mostCommon()
 		if len(top) > 2 {
