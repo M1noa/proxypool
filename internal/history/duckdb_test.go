@@ -155,7 +155,8 @@ func TestUpdateStateFailureKeepsRTEMAAndFirstSeen(t *testing.T) {
 	if st.FirstSeenTS == nil || *st.FirstSeenTS != "2024-01-01T00:00:00Z" {
 		t.Errorf("FirstSeenTS = %v, want the untouched prior value", st.FirstSeenTS)
 	}
-	wantRel := 0.5 + emaAlpha*(0-0.5)
+	// 6th check, so warmAlpha is 1/6 rather than the fixed emaAlpha
+	wantRel := 0.5 + (1.0/6.0)*(0-0.5)
 	if st.RelEMA == nil || math.Abs(*st.RelEMA-wantRel) > 1e-12 {
 		t.Errorf("RelEMA = %v, want %v", st.RelEMA, wantRel)
 	}
@@ -164,6 +165,48 @@ func TestUpdateStateFailureKeepsRTEMAAndFirstSeen(t *testing.T) {
 	}
 	if st.OKCount != 3 || st.CheckCount != 6 {
 		t.Errorf("counts = ok:%d check:%d, want ok:3 check:6", st.OKCount, st.CheckCount)
+	}
+}
+
+// a young proxy's rel_ema has to track its actual record. under the fixed
+// emaAlpha the first outcome pinned it: one failure then six successes left it at
+// 0.069, because each later check only closed 1.18% of the gap toward 1. the db
+// holds a median of 5 checks per proxy, so essentially every row was pinned.
+func TestNextStateRelEMAWarmsToRunningMean(t *testing.T) {
+	ts := "2026-01-01T00:00:00Z"
+	fold := func(alive ...bool) State {
+		var st State
+		for _, a := range alive {
+			st = nextState(check.Outcome{IP: "1.2.3.4", Port: 80, Proto: "http", Alive: a}, ts, st)
+		}
+		return st
+	}
+
+	// one failure then six successes: 6 of 7 checks ok, and below 85 checks the
+	// ema is exactly that mean rather than a lagging fraction of it.
+	st := fold(false, true, true, true, true, true, true)
+	if st.CheckCount != 7 || st.OKCount != 6 {
+		t.Fatalf("counts = ok:%d check:%d, want ok:6 check:7", st.OKCount, st.CheckCount)
+	}
+	if st.RelEMA == nil || math.Abs(*st.RelEMA-6.0/7.0) > 1e-12 {
+		t.Errorf("RelEMA = %v, want %v (ok_count/check_count)", st.RelEMA, 6.0/7.0)
+	}
+
+	// all-dead and all-alive stay at the ends
+	if st := fold(false, false, false); st.RelEMA == nil || *st.RelEMA != 0 {
+		t.Errorf("RelEMA after 3 failures = %v, want 0", st.RelEMA)
+	}
+	if st := fold(true, true, true); st.RelEMA == nil || *st.RelEMA != 1 {
+		t.Errorf("RelEMA after 3 successes = %v, want 1", st.RelEMA)
+	}
+
+	// past the crossover the fixed window takes over, so recent outcomes start
+	// mattering more than lifetime ones — the behavior emaAlpha was chosen for.
+	if got := warmAlpha(85); got != emaAlpha {
+		t.Errorf("warmAlpha(85) = %v, want emaAlpha %v", got, emaAlpha)
+	}
+	if got := warmAlpha(84); got != 1.0/84.0 {
+		t.Errorf("warmAlpha(84) = %v, want 1/84 %v", got, 1.0/84.0)
 	}
 }
 

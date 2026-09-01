@@ -2,20 +2,82 @@ name: fetch proxies
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # cron cannot say "every 45 minutes" — it fires at fixed minutes past the
+    # hour and 45 does not divide 60, so any single expression alternates 45/15.
+    # what it can do is offer slots often enough that the guard job below can
+    # enforce the spacing itself.
+    #
+    # none of them are on the hour. "0 * * * *" is the most contended minute
+    # there is and github drops scheduled fires it cannot place: this repo
+    # measured 36 fires across 151h, one every 4.33h against a nominal 1h,
+    # arriving 1-56 min past. that is not a repo-side fault — the same cron
+    # delivered 0.81-1.57h gaps on aug 26 — so the answer is redundancy, not a
+    # different single minute. each expression is registered and throttled on its
+    # own, so four slots are four independent chances rather than one.
+    - cron: "2 * * * *"
+    - cron: "17 * * * *"
+    - cron: "32 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: fetch
-  cancel-in-progress: false
-
 jobs:
+  # this is where the 45 minutes actually gets enforced. four slots an hour would
+  # otherwise mean four full runs an hour, and a run that republishes 15 min after
+  # the last one also distorts the sources table: the proxypool row's success
+  # column is retention measured across the gap between runs, so a short gap
+  # flatters it. this job answers in seconds and gates the real work on the gap.
+  #
+  # it sits outside the concurrency group on purpose. the group was workflow-level
+  # and only ever keeps one run pending — a third arrival cancels the pending one,
+  # which is where 19 of the last 60 runs went. skipped slots now cost the group
+  # no time at all.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.check.outputs.due }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "manual run, not gated"
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # the publish step force-pushes the output branch every run, so that
+          # commit's date is the last publish. no branch means none yet.
+          last=$(gh api "repos/${{ github.repository }}/commits/output" \
+                   --jq .commit.committer.date 2>/dev/null) || last=""
+          if [ -z "$last" ]; then
+            echo "no output branch yet, running"
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          age=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 60 ))
+          echo "last publish $last, ${age}m ago"
+          # the target is 45 min between runs, but this age is measured from the
+          # last publish and a run takes 6-10 min of its own, so the threshold has
+          # to be 45 minus that. 35 puts consecutive publishes 43-58 min apart:
+          # slots are 15 min apart, the first one at or past 35 lands in [35,50),
+          # and the next run's duration is added on top.
+          if [ "$age" -ge 35 ]; then
+            echo "due=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "due=false (next slot)" >> "$GITHUB_OUTPUT"
+          fi
+
   fetch:
+    needs: guard
+    if: needs.guard.outputs.due == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    concurrency:
+      group: fetch
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 

@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	emaAlpha      = 2.0 / 169.0 // ~168-check effective window (old RECENT_WINDOW)
+	emaAlpha      = 2.0 / 169.0 // ~168-check window (old RECENT_WINDOW); see warmAlpha
 	recentWeight  = 0.7         // blend: 0.7*ema + 0.3*all-time
 	rtGoodMS      = 500.0       // quality speed factor 1.0 at or below this
 	rtBadMS       = 8000.0      // quality speed factor 0.0 at or above this
@@ -264,6 +264,22 @@ func (h *History) StateMap() (map[Key]State, error) {
 	return out, rows.Err()
 }
 
+// warmAlpha is emaAlpha widened for a proxy that has not been checked enough
+// times to fill the window emaAlpha assumes. at the fixed 2/169 a young proxy
+// never escapes its first outcome: the first check seeds the ema at exactly 0 or
+// 1, and every later one closes 1.18% of the gap, so a proxy that failed once
+// and then succeeded six times reports 0.069 reliability against an honest
+// 6/7. 1/n makes the ema exactly the running mean of the alive indicator until
+// the fixed window becomes the shorter memory of the two, at n=85.
+//
+// this matters because the db holds a median of 5 checks per proxy, not 168.
+func warmAlpha(n int) float64 {
+	if n < 1 {
+		return 1
+	}
+	return math.Max(emaAlpha, 1/float64(n))
+}
+
 // nextState folds one outcome into a proxy's prior state. split out of the
 // append loop so the ema arithmetic is testable without a database.
 func nextState(o check.Outcome, ts string, st State) State {
@@ -287,16 +303,17 @@ func nextState(o check.Outcome, ts string, st State) State {
 
 	rel := alive
 	if st.RelEMA != nil {
-		rel = *st.RelEMA + emaAlpha*(alive-*st.RelEMA)
+		rel = *st.RelEMA + warmAlpha(next.CheckCount)*(alive-*st.RelEMA)
 	}
 	next.RelEMA = &rel
 
 	// rt_ema only updates on a successful probe with a measured time; a dead or
-	// timed-out probe leaves the prior estimate untouched.
+	// timed-out probe leaves the prior estimate untouched. it warms on ok_count
+	// rather than check_count because that is how many times it has been fed.
 	if o.Alive && o.RT != nil {
 		r := float64(*o.RT)
 		if st.RTEMA != nil {
-			r = *st.RTEMA + emaAlpha*(r-*st.RTEMA)
+			r = *st.RTEMA + warmAlpha(next.OKCount)*(r-*st.RTEMA)
 		}
 		next.RTEMA = &r
 	}
