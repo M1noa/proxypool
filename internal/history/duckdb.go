@@ -5,14 +5,19 @@
 package history
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb/v2"
+	"github.com/marcboeker/go-duckdb/v2"
+	"github.com/shirou/gopsutil/v4/mem"
 
 	"github.com/M1noa/proxypool/internal/check"
 	"github.com/M1noa/proxypool/internal/extract"
@@ -51,6 +56,44 @@ const schemaSQL = `CREATE TABLE IF NOT EXISTS proxy_state (
     check_count     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (ip, port, proto)
 )`
+
+// stageDDL mirrors proxy_state's columns, plus seq — the order rows were
+// appended in, which flushSQL uses to make the last outcome for a key win the
+// way a row-at-a-time loop did. it is a TEMP table so a run's worth of staging
+// never lands in the history.duckdb the workflow publishes.
+const stageDDL = `CREATE OR REPLACE TEMP TABLE state_stage (
+    seq             BIGINT,
+    ip              VARCHAR,
+    port            INTEGER,
+    proto           VARCHAR,
+    fails_streak    INTEGER,
+    last_ok_ts      VARCHAR,
+    last_checked_ts VARCHAR,
+    first_seen_ts   VARCHAR,
+    rel_ema         DOUBLE,
+    rt_ema          DOUBLE,
+    ok_count        INTEGER,
+    check_count     INTEGER
+)`
+
+// flushSQL folds the whole staging table into proxy_state as one set-based
+// statement. the QUALIFY is insurance, not correctness: merge() dedupes by
+// ip:port and a probe plan holds each proto once, so a key cannot repeat — but
+// DuckDB rejects a statement that would update the same row twice, and losing
+// an hourly run to that is not worth the clause it costs to prevent.
+const flushSQL = `INSERT INTO proxy_state
+    SELECT ip, port, proto, fails_streak, last_ok_ts, last_checked_ts,
+           first_seen_ts, rel_ema, rt_ema, ok_count, check_count
+    FROM state_stage
+    QUALIFY row_number() OVER (PARTITION BY ip, port, proto ORDER BY seq DESC) = 1
+    ON CONFLICT (ip, port, proto) DO UPDATE SET
+        fails_streak    = excluded.fails_streak,
+        last_ok_ts      = excluded.last_ok_ts,
+        last_checked_ts = excluded.last_checked_ts,
+        rel_ema         = excluded.rel_ema,
+        rt_ema          = excluded.rt_ema,
+        ok_count        = excluded.ok_count,
+        check_count     = excluded.check_count`
 
 // Key identifies one proxy_state row, the same (ip, port, proto) tuple
 // check.SkipKey uses.
@@ -100,7 +143,7 @@ func Open(path string) (*History, error) {
 			return nil, err
 		}
 	}
-	db, err := sql.Open("duckdb", path)
+	db, err := sql.Open("duckdb", path+memLimitDSN())
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +153,22 @@ func Open(path string) (*History, error) {
 		return nil, err
 	}
 	return h, nil
+}
+
+// memLimitDSN caps duckdb at half the ram that is actually free. left alone it
+// defaults to 80% of *total* ram, which assumes it owns the machine — but the
+// record set, the prior state and this run's outcomes are all still resident in
+// the go heap when UpdateState runs, so that default overcommits by exactly the
+// amount the go side is holding. past the cap duckdb spills instead of failing.
+func memLimitDSN() string {
+	vm, err := mem.VirtualMemory()
+	if err != nil || vm.Available == 0 {
+		return ""
+	}
+	// a full run measures ~750mb of duckdb, so the floor is headroom, not a
+	// target: it only matters on a machine too small for the default to be safe
+	mb := max(vm.Available/2/(1<<20), 512)
+	return fmt.Sprintf("?memory_limit=%dMB", mb)
 }
 
 func (h *History) migrate() error {
@@ -185,87 +244,161 @@ func (h *History) StateMap() (map[Key]State, error) {
 	return out, rows.Err()
 }
 
+// nextState folds one outcome into a proxy's prior state. split out of the
+// append loop so the ema arithmetic is testable without a database.
+func nextState(o check.Outcome, ts string, st State) State {
+	next := State{
+		LastCheckedTS: &ts,
+		LastOKTS:      st.LastOKTS,
+		RTEMA:         st.RTEMA,
+		OKCount:       st.OKCount,
+		CheckCount:    st.CheckCount + 1,
+	}
+	if !o.Alive {
+		next.FailsStreak = st.FailsStreak + 1
+	}
+
+	alive := 0.0
+	if o.Alive {
+		alive = 1.0
+		next.LastOKTS = &ts
+		next.OKCount++
+	}
+
+	rel := alive
+	if st.RelEMA != nil {
+		rel = *st.RelEMA + emaAlpha*(alive-*st.RelEMA)
+	}
+	next.RelEMA = &rel
+
+	// rt_ema only updates on a successful probe with a measured time; a dead or
+	// timed-out probe leaves the prior estimate untouched.
+	if o.Alive && o.RT != nil {
+		r := float64(*o.RT)
+		if st.RTEMA != nil {
+			r = *st.RTEMA + emaAlpha*(r-*st.RTEMA)
+		}
+		next.RTEMA = &r
+	}
+
+	next.FirstSeenTS = &ts
+	if st.FirstSeenTS != nil && *st.FirstSeenTS != "" {
+		next.FirstSeenTS = st.FirstSeenTS
+	}
+	return next
+}
+
 // UpdateState is update_state: fold this run's outcomes into proxy_state.
 // prev is the state read before this run (StateMap's result from before
 // check.CheckAll ran), not a fresh read — the caller passes the same map it
 // used to compute skip_keys.
+//
+// the rows are bulk-appended into a staging table and folded in by one
+// set-based statement, which is what python's single executemany call got for
+// free. a prepared-statement loop is not a slower version of this, it is a
+// different algorithm: duckdb is columnar and pins a fresh 256 KiB block per
+// single-row statement for as long as the transaction is open, so ~1m upserts
+// cost ~250gb and die. measured at 1m rows: 1.4s and 746mb, against an OOM at
+// row 15823 under a 4gb cap.
 func (h *History) UpdateState(outcomes []check.Outcome, ts string, prev map[Key]State) error {
-	tx, err := h.db.Begin()
+	if len(outcomes) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	// a TEMP table belongs to one connection and database/sql pools them, so
+	// the staging DDL, the appender and the flush all have to share a pinned one
+	conn, err := h.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(
-		"INSERT INTO proxy_state (ip, port, proto, fails_streak, last_ok_ts," +
-			" last_checked_ts, first_seen_ts, rel_ema, rt_ema, ok_count, check_count)" +
-			" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
-			" ON CONFLICT (ip, port, proto) DO UPDATE SET" +
-			" fails_streak = excluded.fails_streak," +
-			" last_ok_ts = excluded.last_ok_ts," +
-			" last_checked_ts = excluded.last_checked_ts," +
-			" rel_ema = excluded.rel_ema," +
-			" rt_ema = excluded.rt_ema," +
-			" ok_count = excluded.ok_count," +
-			" check_count = excluded.check_count")
-	if err != nil {
-		tx.Rollback()
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, stageDDL); err != nil {
 		return err
 	}
-	defer stmt.Close()
 
-	for _, o := range outcomes {
-		st := prev[Key{o.IP, o.Port, o.Proto}]
+	var app *duckdb.Appender
+	if err := conn.Raw(func(dc any) (err error) {
+		app, err = duckdb.NewAppender(dc.(driver.Conn), "temp", "main", "state_stage")
+		return
+	}); err != nil {
+		return err
+	}
 
-		streak := 0
-		if !o.Alive {
-			streak = st.FailsStreak + 1
-		}
+	err = appendStates(app, outcomes, ts, prev)
+	// Close is what flushes the final chunk into the staging table, so it has to
+	// run even on an append failure — otherwise the rows already appended are
+	// stranded in a chunk nothing will ever read.
+	if cerr := app.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
 
-		lastOK := st.LastOKTS
-		if o.Alive {
-			lastOK = &ts
-		}
+	_, err = conn.ExecContext(ctx, flushSQL)
+	return err
+}
 
-		alive := 0.0
-		if o.Alive {
-			alive = 1.0
-		}
-		var rel float64
-		if st.RelEMA == nil {
-			rel = alive
-		} else {
-			rel = *st.RelEMA + emaAlpha*(alive-*st.RelEMA)
-		}
-
-		// rt_ema only updates on a successful probe with a measured time;
-		// a dead or timed-out probe leaves the prior estimate untouched.
-		rtEMA := st.RTEMA
-		if o.Alive && o.RT != nil {
-			r := float64(*o.RT)
-			if st.RTEMA == nil {
-				rtEMA = &r
-			} else {
-				v := *st.RTEMA + emaAlpha*(r-*st.RTEMA)
-				rtEMA = &v
-			}
-		}
-
-		firstSeen := ts
-		if st.FirstSeenTS != nil && *st.FirstSeenTS != "" {
-			firstSeen = *st.FirstSeenTS
-		}
-
-		okCount := st.OKCount
-		if o.Alive {
-			okCount++
-		}
-
-		if _, err := stmt.Exec(o.IP, o.Port, o.Proto, streak, lastOK, ts,
-			firstSeen, rel, rtEMA, okCount, st.CheckCount+1); err != nil {
-			tx.Rollback()
-			return err
+// appendStates writes one row per outcome into the staging table. duckdb's
+// appender is strictly typed, so INTEGER columns take int32 and a nil pointer
+// has to become an untyped nil rather than a typed one.
+func appendStates(app *duckdb.Appender, outcomes []check.Outcome, ts string, prev map[Key]State) error {
+	for i, o := range outcomes {
+		st := nextState(o, ts, prev[Key{o.IP, o.Port, o.Proto}])
+		if err := app.AppendRow(
+			int64(i), o.IP, int32(o.Port), o.Proto, int32(st.FailsStreak),
+			nullStr(st.LastOKTS), nullStr(st.LastCheckedTS), nullStr(st.FirstSeenTS),
+			nullF64(st.RelEMA), nullF64(st.RTEMA),
+			int32(st.OKCount), int32(st.CheckCount),
+		); err != nil {
+			return fmt.Errorf("staging row %d (%s:%d/%s): %w", i, o.IP, o.Port, o.Proto, err)
 		}
 	}
-	return tx.Commit()
+	return nil
+}
+
+func nullStr(p *string) driver.Value {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func nullF64(p *float64) driver.Value {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// MemoryUsage reports duckdb's own accounting, which the go runtime cannot see
+// at all: every byte of it reaches rss as cgo memory. memwatch calls this when
+// the process crosses its threshold, so an empty string on a closed or broken
+// handle is the right answer rather than an error.
+func (h *History) MemoryUsage() string {
+	rows, err := h.db.Query(
+		"SELECT tag, memory_usage_bytes FROM duckdb_memory()" +
+			" WHERE memory_usage_bytes > 0 ORDER BY memory_usage_bytes DESC LIMIT 5")
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+
+	var parts []string
+	var total int64
+	for rows.Next() {
+		var tag string
+		var b int64
+		if rows.Scan(&tag, &b) != nil {
+			return ""
+		}
+		total += b
+		parts = append(parts, fmt.Sprintf("%s %.0fmb", tag, float64(b)/1e6))
+	}
+	if len(parts) == 0 {
+		return "duckdb: nothing pinned"
+	}
+	return fmt.Sprintf("duckdb: %.0fmb pinned (%s)", float64(total)/1e6, strings.Join(parts, ", "))
 }
 
 // Scores is scores: every proto's blended reliability/quality, skipping rows
