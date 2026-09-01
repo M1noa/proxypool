@@ -2,38 +2,37 @@ name: fetch proxies
 
 on:
   schedule:
-    # four slots for one hourly run. the extras are not extra runs — the guard
-    # job below drops them — they are redundancy against github dropping the
-    # fire, which is the thing that actually made runs sparse.
+    # twelve slots for roughly one run every 45 min. the extras are not extra
+    # runs — the guard job below drops them in a few seconds — they exist because
+    # github's scheduled events are best-effort and this repo measured how
+    # best-effort: on a single "0 * * * *", 36 fires across 151h, one every 4.33h
+    # against a nominal 1h, 23% delivery. they arrived at minutes 1 through 56,
+    # so they were being delayed rather than cleanly dropped, and it drifted —
+    # 0.81-1.57h gaps on aug 26, then 9.8h, 10.9h, 11.6h.
     #
-    # none of them are on the hour. "0 * * * *" is the most contended minute
-    # there is and github drops scheduled fires it cannot place: this repo
-    # measured 36 fires across 151h, one every 4.33h against a nominal 1h,
-    # arriving 1-56 min past. that is not a repo-side fault — the same cron
-    # delivered 0.81-1.57h gaps on aug 26 — so the answer is redundancy, not a
-    # different single minute. each expression is registered and throttled on its
-    # own, so four slots are four independent chances rather than one.
-    - cron: "2 * * * *"
-    - cron: "17 * * * *"
-    - cron: "32 * * * *"
-    - cron: "47 * * * *"
+    # nothing in a workflow file can make github fire on time. what more slots
+    # buy is that a delayed or dropped one costs 5 minutes instead of an hour.
+    # offset by 3 to stay off :00, which the docs name as the high-load window,
+    # and off the :15/:30/:45 marks everyone else rounds to.
+    - cron: "3-58/5 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: read # guard reads this workflow's own run status
 
 jobs:
-  # this is where the hourly cadence actually gets enforced. four slots would
-  # otherwise mean four full runs an hour — 150-odd upstream endpoints swept four
-  # times for a list that decays with a ~3h half-life — and a run republishing 15
-  # min after the last one also distorts the sources table: the proxypool row's
-  # success column is retention measured across the gap between runs, so a short
-  # gap flatters it. this job answers in seconds and gates on the gap.
+  # the cadence lives here, not in the cron. twelve slots would otherwise mean
+  # twelve full runs an hour — 150-odd upstream endpoints swept twelve times for a
+  # list that decays with a ~3h half-life — and republishing minutes after the
+  # last run also distorts the sources table, since the proxypool row's success
+  # column is retention measured across the gap between runs and a short gap
+  # flatters it. this job answers in seconds and gates on that gap, so a slot is
+  # cheap enough to offer every five minutes.
   #
-  # it sits outside the concurrency group on purpose. the group was workflow-level
-  # and only ever keeps one run pending — a third arrival cancels the pending one,
-  # which is where 19 of the last 60 runs went. skipped slots now cost the group
-  # no time at all.
+  # it sits outside the concurrency group on purpose. that group only ever keeps
+  # one run pending, so a third arrival cancels the pending one. skipped slots now
+  # cost the group no time at all and cancel nothing.
   guard:
     runs-on: ubuntu-latest
     outputs:
@@ -42,32 +41,58 @@ jobs:
       - id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
+          set -uo pipefail
+          due() { echo "due=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          if [ "$EVENT" != "schedule" ]; then
             echo "manual run, not gated"
-            echo "due=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            due true
           fi
+
+          # a slot landing mid-run reads a publish timestamp that run has not
+          # written yet, clears the age check below, and queues a duplicate behind
+          # the concurrency group to republish a minute later. at twelve slots an
+          # hour against a 6-10 min run that is nearly every cycle.
+          #
+          # the tie-break is on run id, which is monotonic: between two guards
+          # racing only the newer backs off, so this can never talk both out of a
+          # slot. an in-flight fetch always has the lower id, which is the case
+          # that matters.
+          active=$(gh run list --repo "$REPO" --workflow fetch.yml --limit 30 \
+                     --json databaseId,status \
+                     --jq '.[] | select(.status != "completed") | .databaseId') || active=""
+          for id in $active; do
+            if [ "$id" -lt "$RUN_ID" ]; then
+              echo "run $id still in flight, backing off"
+              due false
+            fi
+          done
+
           # the publish step force-pushes the output branch every run, so that
           # commit's date is the last publish. no branch means none yet.
-          last=$(gh api "repos/${{ github.repository }}/commits/output" \
+          last=$(gh api "repos/$REPO/commits/output" \
                    --jq .commit.committer.date 2>/dev/null) || last=""
           if [ -z "$last" ]; then
             echo "no output branch yet, running"
-            echo "due=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            due true
           fi
           age=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 60 ))
           echo "last publish $last, ${age}m ago"
-          # 45, not 60, for an hourly cadence: this age is measured from the last
-          # publish and the next run adds its own 6-10 min on top. slots are 15
-          # min apart so the first one at or past 45 lands in [45,60), putting
-          # consecutive publishes 53-68 min apart. 60 here would drift to ~65+.
-          if [ "$age" -ge 45 ]; then
-            echo "due=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "due=false (next slot)" >> "$GITHUB_OUTPUT"
+          # 35 targets a ~45 min cadence while guaranteeing the hourly floor. the
+          # age is measured from the last publish and the next run adds its own
+          # 6-10 min on top, so with slots 5 min apart the first one at or past 35
+          # lands in [35,40) and consecutive publishes fall 41-50 min apart. the
+          # margin to 60 is deliberate: it absorbs four consecutive dropped slots
+          # before the cadence slips past an hour, and slots do get dropped.
+          if [ "$age" -ge 35 ]; then
+            due true
           fi
+          echo "not due, waiting for the next slot"
+          due false
 
   fetch:
     needs: guard
