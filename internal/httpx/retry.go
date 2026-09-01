@@ -119,6 +119,17 @@ func (c *Client) Do(ctx context.Context, r Req) (string, error) {
 func (c *Client) once(ctx context.Context, method string, r Req, body []byte,
 	contentType string) (string, *http.Response, error) {
 
+	// the deadline check in Do only runs between attempts, so without this a
+	// connection that stalls mid-read (a slow trickle, a tarpitting host) can
+	// hang past the source's whole budget instead of failing into a retry.
+	// skipped when Timeout is set: a flow computing its own per-attempt
+	// timeout has already decided how long this attempt may run, deliberately
+	// independent of the deadline (see runner.get's 1s floor).
+	if !r.Deadline.IsZero() && r.Timeout <= 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, r.Deadline)
+		defer cancel()
+	}
 	if r.Timeout > 0 {
 		// per attempt, so a retry after a timeout gets a full one of its own the
 		// way requests' timeout= does. the body is read before this returns, so
