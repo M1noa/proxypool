@@ -68,7 +68,7 @@ export function render(records: ProxyRecord[], spec: FilterSpec): string {
     case "txt":
       return renderTxt(records, spec);
     case "json":
-      return JSON.stringify(records, null, 2);
+      return JSON.stringify(records);
     case "jsonl":
       return records.map((r) => JSON.stringify(r)).join("\n") + (records.length ? "\n" : "");
     case "csv":

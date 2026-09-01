@@ -6,7 +6,7 @@
   "endpoint": {
     "path": "/list",
     "methods": ["GET", "HEAD"],
-    "cache": "responses cached 30s at the edge; data refreshes hourly upstream",
+    "cache": "responses cached 300s at the edge (stale-while-revalidate=60); data refreshes hourly upstream",
     "notes": [
       "bare /list with no query params returns the full upstream proxies.json untouched",
       "multi-value params accept repetition (?type=a&type=b) or commas (?type=a,b)",
@@ -14,6 +14,13 @@
       "unknown params and invalid values return 400 in the requested format",
       "sort=random is never cached"
     ]
+  },
+  "stats_endpoint": {
+    "path": "/stats",
+    "methods": ["GET"],
+    "cache": "cached 300s at the edge, same dataset as /list",
+    "response": { "total": "int", "avg_response_ms": "int", "last_check": "ISO 8601 of the newest last_checked" },
+    "notes": ["backs the badges on the homepage; not part of the filter api"]
   },
   "shortcuts": {
     "pattern": "/<name>.<ext>",
@@ -171,7 +178,7 @@
     "X-Cache": "HIT | MISS",
     "X-Proxy-Count": "number of records returned",
     "X-Data-Age": "seconds since the dataset was fetched from upstream",
-    "Cache-Control": "public, max-age=30"
+    "Cache-Control": "public, max-age=300, stale-while-revalidate=60"
   },
   "source": "https://github.com/M1noa/proxypool"
 }

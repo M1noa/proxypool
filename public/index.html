@@ -27,19 +27,18 @@
         <header>
             <h1>proxies.minoa.cat</h1>
             <p>free proxy lists, updated hourly</p>
+            <div class="badges" id="badges">
+                <img src="https://github.com/M1noa/proxypool/actions/workflows/fetch.yml/badge.svg" alt="fetch workflow status" width="90" height="20">
+            </div>
         </header>
 
         <nav class="presets" aria-label="presets">
-            <a href="/list">everything</a>
-            <a href="/http.txt">http.txt</a>
-            <a href="/https.txt">https.txt</a>
-            <a href="/socks4.txt">socks4.txt</a>
-            <a href="/socks5.txt">socks5.txt</a>
-            <a href="/elite.json">elite.json</a>
-            <a href="/anon.json">anon.json</a>
-            <a href="/transparent.txt">transparent.txt</a>
-            <a href="/isp.txt">isp.txt</a>
-            <a href="/edu.txt">edu.txt</a>
+            <a href="/all.json" data-preset data-dim="all" data-format="json">all.json</a>
+            <a href="/all.txt" data-preset data-dim="all" data-format="txt">all.txt</a>
+            <a href="/http.txt" data-preset data-dim="type" data-value="http" data-format="txt">http.txt</a>
+            <a href="/https.txt" data-preset data-dim="type" data-value="https" data-format="txt">https.txt</a>
+            <a href="/socks4.txt" data-preset data-dim="type" data-value="socks4" data-format="txt">socks4.txt</a>
+            <a href="/socks5.txt" data-preset data-dim="type" data-value="socks5" data-format="txt">socks5.txt</a>
         </nav>
 
         <main>

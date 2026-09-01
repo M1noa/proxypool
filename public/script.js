@@ -30,25 +30,91 @@ document.addEventListener('DOMContentLoaded', () => {
             set('--button-shadow-strong', `rgba(${r}, ${g}, ${b}, 0.18)`);
             set('--link-color', `rgb(${r}, ${g}, ${b})`);
             set('--link-hover', `rgba(${r}, ${g}, ${b}, 0.8)`);
+            set('--notification-info-bg', `rgba(${r}, ${g}, ${b}, 0.14)`);
             document.documentElement.setAttribute('data-theme', 'pastel');
         }
     } else {
         document.documentElement.setAttribute('data-theme', theme);
     }
 
-    // --- notifications ---
+    // --- notifications: dedupe repeats into a stacking counter instead of piling up toasts ---
     const container = document.getElementById('notification-container');
+    const activeNotifications = new Map();
+
+    function hideNotification(key) {
+        const entry = activeNotifications.get(key);
+        if (!entry) return;
+        entry.element.classList.remove('is-refreshing');
+        entry.element.style.opacity = '0';
+        entry.element.style.transform = 'translateX(120%)';
+        clearTimeout(entry.hideTimeout);
+        clearTimeout(entry.refreshTimeout);
+        setTimeout(() => entry.element.remove(), 380);
+        activeNotifications.delete(key);
+    }
+
     function notify(message, type = 'success') {
         if (!container) return;
+        const key = `${type}:${message}`;
+        const existing = activeNotifications.get(key);
+
+        if (existing) {
+            existing.count += 1;
+            existing.countNode.textContent = `×${existing.count}`;
+            existing.element.classList.add('is-stacked', 'is-refreshing');
+            clearTimeout(existing.hideTimeout);
+            clearTimeout(existing.refreshTimeout);
+            existing.refreshTimeout = setTimeout(() => existing.element.classList.remove('is-refreshing'), 180);
+            existing.hideTimeout = setTimeout(() => hideNotification(key), 2600);
+            return;
+        }
+
         const el = document.createElement('div');
         el.className = `notification ${type}`;
-        el.textContent = message;
+
+        const messageNode = document.createElement('span');
+        messageNode.className = 'notification__message';
+        messageNode.textContent = message;
+
+        const countNode = document.createElement('span');
+        countNode.className = 'notification__count';
+        countNode.textContent = '×1';
+
+        el.append(messageNode, countNode);
         container.appendChild(el);
-        setTimeout(() => {
-            el.style.transition = 'opacity 0.3s';
-            el.style.opacity = '0';
-            setTimeout(() => el.remove(), 350);
-        }, 2600);
+
+        const entry = { element: el, count: 1, countNode, hideTimeout: null, refreshTimeout: null };
+        activeNotifications.set(key, entry);
+        entry.hideTimeout = setTimeout(() => hideNotification(key), 2600);
+    }
+
+    // --- live stat badges (total proxies, avg response, last check) ---
+    const badges = document.getElementById('badges');
+    if (badges) {
+        function shieldsUrl(label, message, color) {
+            const esc = (s) => encodeURIComponent(String(s).replace(/-/g, '--'));
+            return `https://img.shields.io/badge/${esc(label)}-${esc(message)}-${color}`;
+        }
+
+        fetch('/stats')
+            .then((r) => r.json())
+            .then((stats) => {
+                const lastCheck = stats.last_check ? stats.last_check.slice(0, 10) : 'unknown';
+                const items = [
+                    ['total proxies', String(stats.total), 'brightgreen'],
+                    ['avg response', `${stats.avg_response_ms}ms`, 'blue'],
+                    ['last check', lastCheck, 'green'],
+                ];
+                for (const [label, message, color] of items) {
+                    const img = document.createElement('img');
+                    img.src = shieldsUrl(label, message, color);
+                    img.alt = `${label}: ${message}`;
+                    img.width = 120;
+                    img.height = 20;
+                    badges.prepend(img);
+                }
+            })
+            .catch(() => {});
     }
 
     // --- live url building, collapsed to the shortest equivalent route ---
@@ -79,9 +145,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const get = (key) => (data.get(key) || '').toString().trim();
         const getAll = (key) => data.getAll(key).map(String).map((s) => s.trim()).filter(Boolean);
 
-        const types = getAll('type');
-        const anonymity = getAll('anonymity');
-        const ipTypes = getAll('ip_type');
+        // picking every option in a dimension filters nothing -- drop it, shorter url, same result
+        const collapseFull = (values, name) => {
+            const total = form.querySelectorAll(`input[name="${name}"]`).length;
+            return values.length === total ? [] : values;
+        };
+
+        const types = collapseFull(getAll('type'), 'type');
+        const anonymity = collapseFull(getAll('anonymity'), 'anonymity');
+        const ipTypes = collapseFull(getAll('ip_type'), 'ip_type');
         const format = get('format') || 'json';
 
         const sortDefault = get('sort') === '' || get('sort') === 'response';
@@ -102,9 +174,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const params = new URLSearchParams();
         for (const [key, value] of data.entries()) {
+            if (key === 'type' || key === 'anonymity' || key === 'ip_type') continue;
             const v = String(value).trim();
             if (v !== '') params.append(key, v);
         }
+        for (const t of types) params.append('type', t);
+        for (const a of anonymity) params.append('anonymity', a);
+        for (const it of ipTypes) params.append('ip_type', it);
         return `${origin}/list?${params.toString()}`;
     }
 
@@ -115,6 +191,32 @@ document.addEventListener('DOMContentLoaded', () => {
     form.addEventListener('input', refresh);
     form.addEventListener('change', refresh);
     refresh();
+
+    // presets configure the form instead of navigating, with js on
+    document.querySelectorAll('.presets a[data-preset]').forEach((a) => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const { dim, value, format } = a.dataset;
+
+            if (dim === 'all') {
+                form.querySelectorAll('input[name="type"], input[name="anonymity"], input[name="ip_type"]')
+                    .forEach((el) => { el.checked = false; });
+            } else if (dim) {
+                form.querySelectorAll(`input[name="${dim}"]`).forEach((el) => { el.checked = false; });
+                if (value) {
+                    const target = form.querySelector(`input[name="${dim}"][value="${value}"]`);
+                    if (target) target.checked = true;
+                }
+            }
+
+            if (format) {
+                const f = form.querySelector(`input[name="format"][value="${format}"]`);
+                if (f) f.checked = true;
+            }
+
+            refresh();
+        });
+    });
 
     // js on: navigate straight to the (possibly shortcut) url instead of a
     // plain GET submit, so /socks4.txt-style collapsing actually gets used

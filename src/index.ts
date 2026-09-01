@@ -34,6 +34,35 @@ function guessFormat(url: URL): Format {
   return f === "json" || f === "jsonl" || f === "csv" ? f : "txt";
 }
 
+// small json summary for the badges on the ui -- total count, average
+// response time, most recent last_checked. cached same as /list.
+async function handleStats(env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  const cacheKey = new Request(`${url.origin}/stats`, { method: "GET" });
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return new Response(hit.body, hit);
+
+  const dataset = await getDataset(env);
+  const total = dataset.records.length;
+  const avgResponseMs = total
+    ? Math.round(dataset.records.reduce((sum, r) => sum + r.response_time_ms, 0) / total)
+    : 0;
+  const lastCheck = dataset.records.reduce(
+    (latest, r) => (r.last_checked > latest ? r.last_checked : latest),
+    "",
+  );
+
+  const res = new Response(JSON.stringify({ total, avg_response_ms: avgResponseMs, last_check: lastCheck }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": `public, max-age=${env.CACHE_TTL_SECONDS}, stale-while-revalidate=60`,
+    },
+  });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+}
+
 async function handleList(
   env: Env,
   ctx: ExecutionContext,
@@ -71,7 +100,7 @@ async function handleList(
     status: 200,
     headers: {
       "Content-Type": bare ? CONTENT_TYPES.json : CONTENT_TYPES[spec.format],
-      "Cache-Control": `public, max-age=${env.CACHE_TTL_SECONDS}`,
+      "Cache-Control": `public, max-age=${env.CACHE_TTL_SECONDS}, stale-while-revalidate=60`,
       "X-Cache": "MISS",
       "X-Proxy-Count": String(count),
       "X-Data-Age": String(dataAgeSec),
@@ -88,6 +117,9 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/stats") {
+        return await handleStats(env, ctx, url);
+      }
       const shortcut = matchShortcut(url.pathname);
       if (url.pathname !== "/list" && !shortcut) {
         // assets already had their chance at this path.

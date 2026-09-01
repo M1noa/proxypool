@@ -51,7 +51,7 @@ async function fetchUpstream(env: Env): Promise<Dataset> {
   let res: Response;
   try {
     res = await fetch(env.UPSTREAM_URL, {
-      cf: { cacheTtl: 30, cacheEverything: true },
+      cf: { cacheTtl: Number(env.CACHE_TTL_SECONDS || "30"), cacheEverything: true },
       headers: { "User-Agent": "proxies.minoa.cat worker" },
     });
   } catch (e) {
