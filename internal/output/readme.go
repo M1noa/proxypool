@@ -21,6 +21,10 @@ import (
 const (
 	rtGoodMS = 500.0
 	rtBadMS  = 8000.0
+	// volCapAlive is the alive count that earns full marks on the quality
+	// score's volume factor. log-scaled so the jump from 10 to 100 alive
+	// proxies matters far more than 900 to 1000.
+	volCapAlive = 1000.0
 )
 
 const cellStyle = `style="border:1px solid #30363d; padding:3px 8px; text-align:left"`
@@ -419,6 +423,17 @@ func reliabilityPct(rel *float64) int {
 	return pyfmt.Round(100 * v)
 }
 
+// volumePct rewards a source for how many alive proxies it actually
+// contributed, so a source with a great success rate on 2 proxies no longer
+// scores the same as one with the same rate on 2000.
+func volumePct(alive int) int {
+	if alive <= 0 {
+		return 0
+	}
+	factor := math.Min(1, math.Log1p(float64(alive))/math.Log1p(volCapAlive))
+	return pyfmt.Round(100 * factor)
+}
+
 type sourceAgg struct {
 	alive     int
 	rts       []int
@@ -427,9 +442,9 @@ type sourceAgg struct {
 }
 
 // sourcesTable ports write_outputs' per-source table: aggregates fresh
-// (non-carried) records by source, blends success rate/speed/reliability
-// into a quality score, sorts by (quality, alive) descending, and bolds the
-// #1 row.
+// (non-carried) records by source, blends success rate/speed/reliability/
+// volume into a quality score, sorts by (quality, alive) descending, and
+// bolds the #1 row.
 func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []config.Source) string {
 	agg := map[string]*sourceAgg{}
 	for _, r := range records {
@@ -531,7 +546,8 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 		}
 
 		speed := speedPct(avgRT)
-		quality := pyfmt.Round(0.5*float64(pct) + 0.3*float64(speed) + 0.2*float64(relPct))
+		volume := volumePct(alive)
+		quality := pyfmt.Round(0.4*float64(pct) + 0.25*float64(speed) + 0.15*float64(relPct) + 0.2*float64(volume))
 
 		top := countries.mostCommon()
 		if len(top) > 2 {
