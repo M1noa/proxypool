@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
@@ -36,8 +37,9 @@ func extractHTML(htmlText string, ex *config.Extract) ([]map[string]any, error) 
 		return nil, err
 	}
 	fields := htmlFields(ex)
-	var out []map[string]any
-	doc.Find(ex.RowSel()).Each(func(_ int, row *goquery.Selection) {
+	rows := doc.Find(ex.RowSel())
+	out := make([]map[string]any, 0, rows.Length())
+	rows.Each(func(_ int, row *goquery.Selection) {
 		o := map[string]any{}
 		for _, f := range fields {
 			if f.spec.Empty() {
@@ -80,7 +82,7 @@ func cellText(row *goquery.Selection, sel config.Spec) (string, error) {
 	}
 
 	if sel.Regex != "" {
-		re, err := regexp.Compile(sel.Regex)
+		re, err := compileCached(sel.Regex)
 		if err != nil {
 			return "", err
 		}
@@ -125,9 +127,32 @@ func cellText(row *goquery.Selection, sel config.Spec) (string, error) {
 	return PyStrip(val), nil
 }
 
+// reCache memoizes cellText's patterns. the specs all come from sources.jsonc
+// so the key set is small and fixed, but cellText runs once per field per row —
+// without this a 5000-row source recompiles the same handful of patterns tens
+// of thousands of times. sources fetch concurrently, hence sync.Map. a losing
+// racer just recompiles and stores the identical result.
+var reCache sync.Map // pattern -> compiledRe
+
+type compiledRe struct {
+	re  *regexp.Regexp
+	err error
+}
+
+func compileCached(pattern string) (*regexp.Regexp, error) {
+	if v, ok := reCache.Load(pattern); ok {
+		c := v.(compiledRe)
+		return c.re, c.err
+	}
+	re, err := regexp.Compile(pattern)
+	reCache.Store(pattern, compiledRe{re: re, err: err})
+	return re, err
+}
+
 func group1(re *regexp.Regexp, hay string) []string {
-	var out []string
-	for _, m := range re.FindAllStringSubmatch(hay, -1) {
+	all := re.FindAllStringSubmatch(hay, -1)
+	out := make([]string, 0, len(all))
+	for _, m := range all {
 		out = append(out, m[1])
 	}
 	return out

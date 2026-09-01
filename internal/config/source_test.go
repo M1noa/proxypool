@@ -146,15 +146,6 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
-func TestLabelFallsBackToName(t *testing.T) {
-	if got := (Source{Name: "n"}).Label(); got != "n" {
-		t.Errorf("Label = %q, want n", got)
-	}
-	if got := (Source{Name: "n", Display: "D"}).Label(); got != "D" {
-		t.Errorf("Label = %q, want D", got)
-	}
-}
-
 // Spec is written either bare or as an object, and Empty has to agree with
 // python's `if not spec` on both forms.
 func TestSpecUnion(t *testing.T) {

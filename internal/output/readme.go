@@ -413,14 +413,10 @@ func speedPct(avgRT int) int {
 	return pyfmt.Round(100 * factor)
 }
 
-// reliabilityPct ports _reliability_pct: rel in [0,1], nil (no history)
-// treated as neutral 0.5.
-func reliabilityPct(rel *float64) int {
-	v := 0.5
-	if rel != nil {
-		v = *rel
-	}
-	return pyfmt.Round(100 * v)
+// reliabilityPct ports _reliability_pct: rel in [0,1]. callers with no history
+// to average pass the neutral 0.5.
+func reliabilityPct(rel float64) int {
+	return pyfmt.Round(100 * rel)
 }
 
 // volumePct rewards a source for how many alive proxies it actually
@@ -434,10 +430,15 @@ func volumePct(alive int) int {
 	return pyfmt.Round(100 * factor)
 }
 
+// sourceAgg keeps running sums rather than the samples. both slices existed only
+// to be averaged, and they grew one entry per (record, source) pair — plus, for
+// rels, one heap-boxed float64 per record — to produce two numbers.
 type sourceAgg struct {
 	alive     int
-	rts       []int
-	rels      []*float64
+	rtSum     int
+	rtN       int
+	relSum    float64
+	relN      int
 	countries *counter
 }
 
@@ -451,11 +452,6 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 		if r.Carried {
 			continue
 		}
-		var rl *float64
-		if r.Check != nil {
-			v := r.Check.Reliability
-			rl = &v
-		}
 		for _, s := range r.Sources {
 			a, ok := agg[s]
 			if !ok {
@@ -464,9 +460,13 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 			}
 			a.alive++
 			if r.ResponseTimeMS != nil && *r.ResponseTimeMS != 0 {
-				a.rts = append(a.rts, *r.ResponseTimeMS)
+				a.rtSum += *r.ResponseTimeMS
+				a.rtN++
 			}
-			a.rels = append(a.rels, rl)
+			if r.Check != nil {
+				a.relSum += r.Check.Reliability
+				a.relN++
+			}
 			if r.Country != "" {
 				a.countries.add(r.Country)
 			}
@@ -490,13 +490,11 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 	for _, s := range names {
 		fetched := fetchedPerSource[s]
 		a := agg[s]
-		alive := 0
-		var rts []int
-		var rels []*float64
-		countries := newCounter()
-		if a != nil {
-			alive, rts, rels, countries = a.alive, a.rts, a.rels, a.countries
+		// a source that fetched but landed nothing alive has no agg entry
+		if a == nil {
+			a = &sourceAgg{countries: newCounter()}
 		}
+		alive := a.alive
 
 		pct := 0
 		if fetched != 0 {
@@ -504,30 +502,14 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 		}
 
 		avgRT := 0
-		if len(rts) > 0 {
-			sum := 0
-			for _, v := range rts {
-				sum += v
-			}
-			avgRT = pyfmt.Round(float64(sum) / float64(len(rts)))
+		if a.rtN > 0 {
+			avgRT = pyfmt.Round(float64(a.rtSum) / float64(a.rtN))
 		}
 
-		var relPtr *float64
-		if len(rels) > 0 {
-			sum, n := 0.0, 0
-			for _, v := range rels {
-				if v != nil {
-					sum += *v
-					n++
-				}
-			}
-			rel := 0.5
-			if n > 0 {
-				rel = sum / float64(n)
-			}
-			relPtr = &rel
+		rel := 0.5
+		if a.relN > 0 {
+			rel = a.relSum / float64(a.relN)
 		}
-		relPct := reliabilityPct(relPtr)
 
 		if s == "proxypool" {
 			sum, n := 0.0, 0
@@ -537,19 +519,18 @@ func sourcesTable(records []*Record, fetchedPerSource map[string]int, sources []
 					n++
 				}
 			}
+			rel = 0.5
 			if n > 0 {
-				mean := sum / float64(n)
-				relPct = reliabilityPct(&mean)
-			} else {
-				relPct = 50
+				rel = sum / float64(n)
 			}
 		}
+		relPct := reliabilityPct(rel)
 
 		speed := speedPct(avgRT)
 		volume := volumePct(alive)
 		quality := pyfmt.Round(0.4*float64(pct) + 0.25*float64(speed) + 0.15*float64(relPct) + 0.2*float64(volume))
 
-		top := countries.mostCommon()
+		top := a.countries.mostCommon()
 		if len(top) > 2 {
 			top = top[:2]
 		}

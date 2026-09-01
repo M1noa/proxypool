@@ -272,14 +272,6 @@ func (s Source) HTTPMethod() string {
 	return s.Method
 }
 
-// Label is the human-facing name used in the readme table.
-func (s Source) Label() string {
-	if s.Display != "" {
-		return s.Display
-	}
-	return s.Name
-}
-
 // Load reads sources.jsonc, whose top level is {"sources": [...]}.
 func Load(path string) ([]Source, error) {
 	var cfg struct {

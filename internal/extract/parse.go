@@ -20,10 +20,13 @@ import (
 func ParseContent(src *config.Source, content string, defaults map[string]any) ([]*Record, error) {
 	ex := src.EffectiveExtract()
 	proto := src.Protocol
+	// Fmt has a value receiver, so calling it inside the record loop below would
+	// copy the whole Source per record
+	format := src.Fmt()
 
 	var raws []map[string]any
 	var err error
-	switch src.Fmt() {
+	switch format {
 	case "json":
 		var doc any
 		if doc, err = DecodeJSON(content); err != nil {
@@ -48,7 +51,7 @@ func ParseContent(src *config.Source, content string, defaults map[string]any) (
 		if rec == nil {
 			continue
 		}
-		if src.Fmt() == "text" {
+		if format == "text" {
 			// a trailing country on a text row is a NAME, not an iso code, so a
 			// two-letter one has already been consumed as `country` and anything
 			// longer has to be moved across by hand.

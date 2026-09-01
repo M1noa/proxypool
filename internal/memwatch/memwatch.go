@@ -113,14 +113,14 @@ func (w *Watcher) loop(ctx context.Context, done chan struct{}) {
 		if rss < threshold {
 			continue
 		}
-		w.report(rss, total, haveRSS, &ms, live)
+		w.report(proc, rss, total, haveRSS, &ms, live)
 		threshold = rss + uint64(float64(total)*regrowFrac)
 	}
 }
 
 // report prints the breakdown, the leak verdict, and only then tries to release
 // anything — a cleanup that runs first would erase the evidence for it.
-func (w *Watcher) report(rss, total uint64, haveRSS bool, ms *runtime.MemStats, live []uint64) {
+func (w *Watcher) report(proc *process.Process, rss, total uint64, haveRSS bool, ms *runtime.MemStats, live []uint64) {
 	w.Logf("memory: rss %s of %s system (%.0f%%), %d goroutines, %d gc cycles",
 		human(rss), human(total), 100*float64(rss)/float64(total),
 		runtime.NumGoroutine(), ms.NumGC)
@@ -152,8 +152,11 @@ func (w *Watcher) report(rss, total uint64, haveRSS bool, ms *runtime.MemStats, 
 	debug.FreeOSMemory()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
+	// same handle and same fallback as the reading that tripped the threshold:
+	// pairing an rss that includes cgo against a go-only Sys would report a
+	// release that never happened
 	rssAfter := after.Sys
-	if proc, err := process.NewProcess(int32(os.Getpid())); err == nil {
+	if proc != nil {
 		if mi, err := proc.MemoryInfo(); err == nil {
 			rssAfter = mi.RSS
 		}

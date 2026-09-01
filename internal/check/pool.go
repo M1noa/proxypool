@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -138,17 +139,15 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 		logf = func(string, ...any) {}
 	}
 
-	var kept []job
+	// probePlan's slice is freshly allocated per record and unshared, so the
+	// skip filter compacts it in place rather than building a second one
+	kept := make([]job, 0, len(records))
 	for _, r := range records {
 		plan := probePlan(r)
 		if len(opts.Skip) > 0 {
-			filtered := make([]string, 0, len(plan))
-			for _, p := range plan {
-				if !opts.Skip[SkipKey{r.IP, r.Port, p}] {
-					filtered = append(filtered, p)
-				}
-			}
-			plan = filtered
+			plan = slices.DeleteFunc(plan, func(p string) bool {
+				return opts.Skip[SkipKey{r.IP, r.Port, p}]
+			})
 		}
 		if len(plan) == 0 {
 			skipped++
@@ -231,15 +230,25 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 		logf("second-chance: revived %d/%d", revived, len(retryIdx))
 	}
 
+	// size both slices before filling them: a run holds ~2m records and ~4m
+	// outcomes, so growing outcomes by doubling would copy hundreds of megabytes
+	// and hold 2.5x the final size live across the last regrow
 	logf("aggregating outcomes")
+	nOutcomes, nAlive := 0, 0
+	for i := range kept {
+		nOutcomes += len(planOutcomes[i])
+		if results[i] {
+			nAlive++
+		}
+	}
+	outcomes = make([]Outcome, 0, nOutcomes)
+	alive = make([]*extract.Record, 0, nAlive)
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	for i, j := range kept {
 		for _, po := range planOutcomes[i] {
 			outcomes = append(outcomes, Outcome{IP: j.rec.IP, Port: j.rec.Port, Proto: po.Proto, Alive: po.RT != nil, RT: po.RT})
 		}
-	}
-
-	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	for i, j := range kept {
 		if results[i] {
 			ts := now
 			j.rec.LastChecked = &ts
@@ -272,11 +281,18 @@ func runPool(ctx context.Context, c *Checker, jobs []job, results []bool, outcom
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 
-	for w := 0; w < concurrency; w++ {
+	// the second-chance pass can be far smaller than the pool
+	for w := 0; w < min(concurrency, len(jobs)); w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for {
+				// without this a cancelled run still walks every remaining job,
+				// failing each one instantly against a dead context — the budget
+				// backstop would delay the pool instead of stopping it
+				if ctx.Err() != nil {
+					return
+				}
 				i := int(cursor.Add(1)) - 1
 				if i >= len(jobs) {
 					return
