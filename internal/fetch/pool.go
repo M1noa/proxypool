@@ -117,7 +117,13 @@ func (p *Pool) Run(ctx context.Context, sources []*config.Source) ([]*extract.Re
 	close(stop)
 	wd.Wait()
 
-	var recs []*extract.Record
+	// sized up front: a full run is a couple of million records, and growing
+	// there from nil copies tens of megabytes and holds 2x at the last regrow
+	total := 0
+	for _, o := range sch.res {
+		total += len(o.recs)
+	}
+	recs := make([]*extract.Record, 0, total)
 	stats := make(map[string]Stat, len(sch.res))
 	for _, s := range sources {
 		o := sch.res[s.Name]

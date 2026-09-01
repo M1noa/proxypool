@@ -215,7 +215,9 @@ func groupDict(re *regexp.Regexp, m []string) map[string]any {
 // and no trailing empty element. sources served with bare \r line endings
 // would otherwise arrive as one enormous line.
 func pySplitLines(s string) []string {
-	var out []string
+	// \n covers all but a handful of real inputs, so it is a good enough size
+	// estimate to skip ~18 regrows on a 200k-line source
+	out := make([]string, 0, strings.Count(s, "\n")+1)
 	start := 0
 	for i := 0; i < len(s); {
 		r, w := utf8.DecodeRuneInString(s[i:])

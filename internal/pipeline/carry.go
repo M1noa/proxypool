@@ -53,10 +53,10 @@ type prevRecord struct {
 // dropped on the spot. entries already in seen are skipped. existed reports
 // whether the file was there at all, which is what python gates its log line on.
 //
-// it decodes one entry at a time rather than into a []prevRecord, because the
-// file is a few hundred megabytes and most of its entries are in seen already:
-// slurping it would hold the bytes, every decoded row, and the items built from
-// the survivors all at once, when only the last of those outlives this call.
+// it decodes one entry at a time rather than into a []prevRecord: most entries
+// are in seen already, so slurping would hold the file bytes, every decoded row
+// and the items built from the survivors all at once, when only the last of
+// those outlives this call.
 func loadPrevious(path string, seen map[string]bool) (items []*item, existed bool, err error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {

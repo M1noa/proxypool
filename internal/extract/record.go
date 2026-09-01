@@ -68,13 +68,17 @@ func NormRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 		return nil
 	}
 
+	// SourceMeta and Provided stay nil until something goes in them: most
+	// records have no meta_ fields and most sources declare no includes, and an
+	// empty map is still a 48-byte heap allocation apiece across millions of
+	// records. every reader of both is nil-safe (map reads, range, and the json
+	// encoder's `{}` for an empty map); the two writers in pipeline.merge
+	// allocate on demand.
 	rec := &Record{
-		IP:         ip,
-		IPVersion:  ipVersionOf(ip),
-		Port:       port,
-		Protocols:  []string{},
-		Sources:    []string{src.Name},
-		SourceMeta: map[string]any{},
+		IP:        ip,
+		IPVersion: ipVersionOf(ip),
+		Port:      port,
+		Sources:   []string{src.Name},
 	}
 
 	// protocols
@@ -141,12 +145,17 @@ func NormRecord(raw map[string]any, src *config.Source, defaultProto string) *Re
 		if s, ok := v.(string); ok && s == "" {
 			continue
 		}
+		if rec.SourceMeta == nil {
+			rec.SourceMeta = make(map[string]any, 4)
+		}
 		rec.SourceMeta[k[len("meta_"):]] = v
 	}
 
-	rec.Provided = map[string]bool{}
-	for _, f := range src.Includes {
-		rec.Provided[f] = true
+	if len(src.Includes) > 0 {
+		rec.Provided = make(map[string]bool, len(src.Includes))
+		for _, f := range src.Includes {
+			rec.Provided[f] = true
+		}
 	}
 	return rec
 }

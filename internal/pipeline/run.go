@@ -265,27 +265,31 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 // sums their counters, and takes the outer bounds of their timestamps. a record
 // with no scored protocol is treated as brand new.
 func blendScores(r *extract.Record, scores map[history.Key]history.Score) *output.CheckFields {
-	var parts []history.Score
-	for _, p := range r.Protocols {
-		if s, ok := scores[history.Key{IP: r.IP, Port: r.Port, Proto: p}]; ok {
-			parts = append(parts, s)
-		}
-	}
-	if len(parts) == 0 {
-		return &output.CheckFields{Reliability: history.NewProxyScore, Quality: history.NewProxyScore}
-	}
+	// accumulated in one pass: gathering the matches into a slice first cost a
+	// heap allocation per record for at most four values, read once
 	f := &output.CheckFields{}
 	var rel, qual float64
-	for _, p := range parts {
-		rel += p.Reliability
-		qual += p.Quality
-		f.ChecksTotal += p.ChecksTotal
-		f.ChecksOK += p.ChecksOK
-		f.FirstSeen = minTS(f.FirstSeen, p.FirstSeen)
-		f.LastSeen = maxTS(f.LastSeen, p.LastSeen)
+	n := 0
+	for _, p := range r.Protocols {
+		s, ok := scores[history.Key{IP: r.IP, Port: r.Port, Proto: p}]
+		if !ok {
+			continue
+		}
+		n++
+		rel += s.Reliability
+		qual += s.Quality
+		f.ChecksTotal += s.ChecksTotal
+		f.ChecksOK += s.ChecksOK
+		f.FirstSeen = minTS(f.FirstSeen, s.FirstSeen)
+		f.LastSeen = maxTS(f.LastSeen, s.LastSeen)
 	}
-	f.Reliability = pyfmt.RoundN(rel/float64(len(parts)), 4)
-	f.Quality = pyfmt.RoundN(qual/float64(len(parts)), 4)
+	if n == 0 {
+		// nothing else was touched, so f is still zero apart from these two
+		f.Reliability, f.Quality = history.NewProxyScore, history.NewProxyScore
+		return f
+	}
+	f.Reliability = pyfmt.RoundN(rel/float64(n), 4)
+	f.Quality = pyfmt.RoundN(qual/float64(n), 4)
 	return f
 }
 
@@ -390,8 +394,8 @@ func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sou
 }
 
 // writeJSON streams the array straight to the file. os.WriteFile would want the
-// whole few-hundred-megabyte encoding as one []byte, on top of the records it
-// was encoded from.
+// whole encoding as one []byte on top of the records it came from, which under
+// -skip-check means holding every merged record twice over.
 func writeJSON(path string, recs []*output.Record) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

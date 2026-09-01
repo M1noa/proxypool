@@ -19,7 +19,6 @@ import (
 	"net/http"
 	neturl "net/url"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -282,20 +281,33 @@ func (c *Checker) probe(ctx context.Context, ip string, port int, proto string) 
 
 // probePlan is _probe_plan: socks4/socks5 probe whenever claimed, plus an
 // https+http pair whenever either is claimed or nothing recognizable was.
+//
+// four bools rather than a set, because this runs once per record and a run
+// holds ~2m of them: a map here is a map allocation there.
 func probePlan(r *extract.Record) []string {
-	claimed := make(map[string]bool, len(r.Protocols))
+	var s4, s5, hasHTTP, hasHTTPS bool
 	for _, p := range r.Protocols {
-		claimed[p] = true
+		switch p {
+		case "socks4":
+			s4 = true
+		case "socks5":
+			s5 = true
+		case "http":
+			hasHTTP = true
+		case "https":
+			hasHTTPS = true
+		}
 	}
-	var plan []string
-	if claimed["socks4"] {
+	plan := make([]string, 0, 4)
+	if s4 {
 		plan = append(plan, "socks4")
 	}
-	if claimed["socks5"] {
+	if s5 {
 		plan = append(plan, "socks5")
 	}
-	known := claimed["socks4"] || claimed["socks5"] || claimed["http"] || claimed["https"]
-	if claimed["http"] || claimed["https"] || !known {
+	// `!known` in python was !(s4||s5||http||https), and the two http terms are
+	// already covered by the left of the ||
+	if hasHTTP || hasHTTPS || !(s4 || s5) {
 		plan = append(plan, "https", "http")
 	}
 	return plan
@@ -367,7 +379,7 @@ func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string
 	}
 	wg.Wait()
 
-	ok := map[string]bool{}
+	var okHTTP, okHTTPS, okS4, okS5, any bool
 	var bestRT, bestRaw int
 	haveBest := false
 	for i, res := range results {
@@ -377,30 +389,49 @@ func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string
 		raw := pyfmt.Round(res.ms)
 		calibrated := max(1, pyfmt.Round(res.ms-c.baseline))
 		outcomes[i].RT = &calibrated
-		ok[plan[i]] = true
+		switch plan[i] {
+		case "http":
+			okHTTP = true
+		case "https":
+			okHTTPS = true
+		case "socks4":
+			okS4 = true
+		case "socks5":
+			okS5 = true
+		}
+		any = true
 		if !haveBest || calibrated < bestRT {
 			bestRT, bestRaw, haveBest = calibrated, raw, true
 		}
 	}
-	if len(ok) == 0 {
+	if !any {
 		return false, outcomes
 	}
-	if ok["https"] {
-		ok["http"] = true
+	if okHTTPS {
+		okHTTP = true
 	}
-	protos := make([]string, 0, len(ok))
-	for p := range ok {
-		protos = append(protos, p)
+	// appended in the order python's sorted() would have produced, so no sort
+	protos := make([]string, 0, 4)
+	if okHTTP {
+		protos = append(protos, "http")
 	}
-	sort.Strings(protos)
+	if okHTTPS {
+		protos = append(protos, "https")
+	}
+	if okS4 {
+		protos = append(protos, "socks4")
+	}
+	if okS5 {
+		protos = append(protos, "socks5")
+	}
 
 	r.Protocols = protos
 	r.ResponseTimeMS = &bestRT
 	r.ResponseTimeRawMS = &bestRaw
-	if slices.Contains(protos, "https") {
+	if okHTTPS {
 		r.HTTPS = true
 	}
-	if r.Anonymity == "" && !r.Provided["anonymity"] && slices.Contains(protos, "http") {
+	if r.Anonymity == "" && !r.Provided["anonymity"] && okHTTP {
 		r.Anonymity = echoAnonymity(ctx, r.IP, r.Port, c.myIP, c.tmo())
 	}
 	return true, outcomes
