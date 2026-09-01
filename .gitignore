@@ -4,4 +4,4 @@ __pycache__/
 AGENT.md
 ENDPOINTS.md
 sources.jsonc.bak1
-output/
+/output/
