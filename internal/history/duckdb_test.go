@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -166,10 +167,11 @@ func TestUpdateStateFailureKeepsRTEMAAndFirstSeen(t *testing.T) {
 	}
 }
 
-// every outcome now folds in through one set-based statement, so a batch that
-// mixes a key already in proxy_state with a brand new one exercises both sides
-// of the ON CONFLICT at once — the single-row loop this replaced could not get
-// one branch wrong without getting both wrong, and this can.
+// outcomes fold in through a set-based delete-then-insert, so a batch mixing a
+// key already in proxy_state with a brand new one exercises both halves at once:
+// the delete has to find the first and tolerate the second missing. the
+// single-row loop this replaced could not get one branch wrong without getting
+// both wrong, and this can.
 func TestUpdateStateBatchMixesInsertAndUpdate(t *testing.T) {
 	h := openTest(t)
 	ts1, ts2 := "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z"
@@ -205,10 +207,10 @@ func TestUpdateStateBatchMixesInsertAndUpdate(t *testing.T) {
 	}
 }
 
-// duckdb rejects a statement that would update one row twice, and a batch is
-// only as safe as merge()'s dedupe upstream of it. collapsing to the last
-// outcome keeps a repeated key behaving the way the row-at-a-time loop did
-// instead of failing the whole hourly run.
+// a batch is only as safe as merge()'s dedupe upstream of it, and without
+// insertSQL's QUALIFY a repeated key would insert twice and quietly double the
+// row. collapsing to the last outcome keeps it behaving the way the
+// row-at-a-time loop did.
 func TestUpdateStateDuplicateKeyKeepsLastOutcome(t *testing.T) {
 	h := openTest(t)
 	ts := "2026-01-01T00:00:00Z"
@@ -229,6 +231,57 @@ func TestUpdateStateDuplicateKeyKeepsLastOutcome(t *testing.T) {
 	st := state[Key{"1.1.1.1", 80, "http"}]
 	if st.FailsStreak != 1 || st.LastOKTS != nil {
 		t.Errorf("state = %+v, want the later failing outcome (streak=1, no last_ok_ts)", st)
+	}
+}
+
+// a real run stages ~2m outcomes in stageBatch-sized chunks, so every flush but
+// the last runs against a proxy_state the same call already wrote to. the risk
+// is deleteSQL: it has to drop only what the batch in staging supersedes, and a
+// batch boundary must not cost the earlier batches their rows.
+func TestUpdateStateAcrossBatches(t *testing.T) {
+	defer func(n int) { stageBatch = n }(stageBatch)
+	stageBatch = 3
+
+	h := openTest(t)
+	if err := h.UpdateState([]check.Outcome{
+		{IP: "9.9.9.9", Port: 80, Proto: "http", Alive: true, RT: ip(100)},
+	}, "2026-01-01T00:00:00Z", map[Key]State{}); err != nil {
+		t.Fatalf("seed UpdateState: %v", err)
+	}
+	prev, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+
+	// 7 outcomes over 3 batches. the seeded key sits in the last one, so its
+	// update happens after two flushes have already written to proxy_state.
+	outcomes := make([]check.Outcome, 0, 7)
+	for i := 0; i < 6; i++ {
+		outcomes = append(outcomes, check.Outcome{
+			IP: "10.0.0." + strconv.Itoa(i), Port: 8080, Proto: "http", Alive: true, RT: ip(50)})
+	}
+	outcomes = append(outcomes, check.Outcome{IP: "9.9.9.9", Port: 80, Proto: "http", Alive: false})
+
+	if err := h.UpdateState(outcomes, "2026-01-02T00:00:00Z", prev); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	state, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+	if len(state) != 7 {
+		t.Fatalf("proxy_state holds %d rows, want 7 — a batch dropped an earlier batch's rows", len(state))
+	}
+	for i := 0; i < 6; i++ {
+		k := Key{"10.0.0." + strconv.Itoa(i), 8080, "http"}
+		if st, ok := state[k]; !ok || st.CheckCount != 1 {
+			t.Errorf("state[%v] = %+v (present=%v), want one check", k, st, ok)
+		}
+	}
+	// the seeded row was superseded, not duplicated, across the boundary
+	if st := state[Key{"9.9.9.9", 80, "http"}]; st.CheckCount != 2 || st.FailsStreak != 1 || st.OKCount != 1 {
+		t.Errorf("seeded state = %+v, want checks=2 streak=1 ok=1", st)
 	}
 }
 

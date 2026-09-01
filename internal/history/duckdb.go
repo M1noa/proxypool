@@ -39,9 +39,25 @@ const (
 	pruneDays = 14 // drop proxies not checked within this window, every run
 
 	tsFmt         = "2006-01-02T15:04:05Z"
-	schemaVersion = 3
+	schemaVersion = 4
 )
 
+// stageBatch is how many rows get appended into staging before a flush, and it
+// is the only bound on duckdb's memory here: a staged row pins buffer-manager
+// blocks the appender holds and the buffer manager therefore cannot evict, so
+// staging a whole run at once needs memory proportional to the run — measured
+// failing at 1.74m rows under a 534mb limit. four flushes for a 2m-outcome run
+// keeps the peak flat without making the delete below run often enough to
+// matter. a var only so the multi-batch test can lower it.
+var stageBatch = 500_000
+
+// schemaSQL deliberately declares no primary key. duckdb persists the ART index
+// a PRIMARY KEY implies, and on a real run's ~1.9m rows that index measured
+// 122mb of a 139mb file — past github's 100mb blob limit, which is what the
+// workflow force-pushes this file through. the same rows without it are 17mb.
+// nothing needs the index: nextState computes each row in full from the prior
+// state map, so the flush below is a set-based delete-then-insert rather than an
+// upsert duckdb has to resolve, and uniqueness holds by construction.
 const schemaSQL = `CREATE TABLE IF NOT EXISTS proxy_state (
     ip              VARCHAR NOT NULL,
     port            INTEGER NOT NULL,
@@ -53,8 +69,7 @@ const schemaSQL = `CREATE TABLE IF NOT EXISTS proxy_state (
     rel_ema         DOUBLE,
     rt_ema          DOUBLE,
     ok_count        INTEGER NOT NULL DEFAULT 0,
-    check_count     INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (ip, port, proto)
+    check_count     INTEGER NOT NULL DEFAULT 0
 )`
 
 // stageDDL mirrors proxy_state's columns, plus seq — the order rows were
@@ -76,24 +91,23 @@ const stageDDL = `CREATE OR REPLACE TEMP TABLE state_stage (
     check_count     INTEGER
 )`
 
-// flushSQL folds the whole staging table into proxy_state as one set-based
-// statement. the QUALIFY is insurance, not correctness: merge() dedupes by
-// ip:port and a probe plan holds each proto once, so a key cannot repeat — but
-// DuckDB rejects a statement that would update the same row twice, and losing
-// an hourly run to that is not worth the clause it costs to prevent.
-const flushSQL = `INSERT INTO proxy_state
+// deleteSQL and insertSQL fold a staging batch into proxy_state: drop whatever
+// the batch supersedes, then append the batch. two set-based statements per
+// batch, so a run is a handful of statements rather than one per row.
+//
+// the QUALIFY is insurance, not correctness: merge() dedupes by ip:port and a
+// probe plan holds each proto once, so a key cannot repeat within a batch. a key
+// spanning two batches needs no special handling — the later batch's delete
+// removes the earlier batch's row, which is the same last-write-wins the QUALIFY
+// gives inside one.
+const deleteSQL = `DELETE FROM proxy_state WHERE (ip, port, proto) IN
+    (SELECT ip, port, proto FROM state_stage)`
+
+const insertSQL = `INSERT INTO proxy_state
     SELECT ip, port, proto, fails_streak, last_ok_ts, last_checked_ts,
            first_seen_ts, rel_ema, rt_ema, ok_count, check_count
     FROM state_stage
-    QUALIFY row_number() OVER (PARTITION BY ip, port, proto ORDER BY seq DESC) = 1
-    ON CONFLICT (ip, port, proto) DO UPDATE SET
-        fails_streak    = excluded.fails_streak,
-        last_ok_ts      = excluded.last_ok_ts,
-        last_checked_ts = excluded.last_checked_ts,
-        rel_ema         = excluded.rel_ema,
-        rt_ema          = excluded.rt_ema,
-        ok_count        = excluded.ok_count,
-        check_count     = excluded.check_count`
+    QUALIFY row_number() OVER (PARTITION BY ip, port, proto ORDER BY seq DESC) = 1`
 
 // Key identifies one proxy_state row, the same (ip, port, proto) tuple
 // check.SkipKey uses.
@@ -159,14 +173,20 @@ func Open(path string) (*History, error) {
 // defaults to 80% of *total* ram, which assumes it owns the machine — but the
 // record set, the prior state and this run's outcomes are all still resident in
 // the go heap when UpdateState runs, so that default overcommits by exactly the
-// amount the go side is holding. past the cap duckdb spills instead of failing.
+// amount the go side is holding.
+//
+// the cap does not make duckdb spill: blocks an appender is holding cannot be
+// evicted, so hitting it raises "could not allocate block" instead. that is the
+// point. a readable error beats the kernel killing the whole job, which is what
+// the uncapped default bought at 12.4gb. stageBatch is what keeps the peak under
+// the cap in the first place.
 func memLimitDSN() string {
 	vm, err := mem.VirtualMemory()
 	if err != nil || vm.Available == 0 {
 		return ""
 	}
-	// a full run measures ~750mb of duckdb, so the floor is headroom, not a
-	// target: it only matters on a machine too small for the default to be safe
+	// a batched run measures well under 512mb of duckdb, so the floor is
+	// headroom: it only matters on a machine too small for the default to be safe
 	mb := max(vm.Available/2/(1<<20), 512)
 	return fmt.Sprintf("?memory_limit=%dMB", mb)
 }
@@ -293,13 +313,13 @@ func nextState(o check.Outcome, ts string, st State) State {
 // check.CheckAll ran), not a fresh read — the caller passes the same map it
 // used to compute skip_keys.
 //
-// the rows are bulk-appended into a staging table and folded in by one
-// set-based statement, which is what python's single executemany call got for
-// free. a prepared-statement loop is not a slower version of this, it is a
-// different algorithm: duckdb is columnar and pins a fresh 256 KiB block per
-// single-row statement for as long as the transaction is open, so ~1m upserts
-// cost ~250gb and die. measured at 1m rows: 1.4s and 746mb, against an OOM at
-// row 15823 under a 4gb cap.
+// the rows are bulk-appended into a staging table and folded in set-based, in
+// batches, which is what python's single executemany call got for free. a
+// prepared-statement loop is not a slower version of this, it is a different
+// algorithm: duckdb is columnar and pins a fresh 256 KiB block per single-row
+// statement for as long as the transaction is open, so ~1m upserts cost ~250gb
+// and die. measured at 1m rows: 1.4s and 746mb, against an OOM at row 15823
+// under a 4gb cap.
 func (h *History) UpdateState(outcomes []check.Outcome, ts string, prev map[Key]State) error {
 	if len(outcomes) == 0 {
 		return nil
@@ -312,6 +332,18 @@ func (h *History) UpdateState(outcomes []check.Outcome, ts string, prev map[Key]
 		return err
 	}
 	defer conn.Close()
+
+	for start := 0; start < len(outcomes); start += stageBatch {
+		if err := flushBatch(ctx, conn, outcomes[start:min(start+stageBatch, len(outcomes))], ts, prev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// flushBatch stages one batch and folds it in. the staging table is recreated
+// per batch, which is also what discards the previous one's rows.
+func flushBatch(ctx context.Context, conn *sql.Conn, batch []check.Outcome, ts string, prev map[Key]State) error {
 	if _, err := conn.ExecContext(ctx, stageDDL); err != nil {
 		return err
 	}
@@ -324,7 +356,7 @@ func (h *History) UpdateState(outcomes []check.Outcome, ts string, prev map[Key]
 		return err
 	}
 
-	err = appendStates(app, outcomes, ts, prev)
+	err := appendStates(app, batch, ts, prev)
 	// Close is what flushes the final chunk into the staging table, so it has to
 	// run even on an append failure — otherwise the rows already appended are
 	// stranded in a chunk nothing will ever read.
@@ -335,7 +367,10 @@ func (h *History) UpdateState(outcomes []check.Outcome, ts string, prev map[Key]
 		return err
 	}
 
-	_, err = conn.ExecContext(ctx, flushSQL)
+	if _, err := conn.ExecContext(ctx, deleteSQL); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, insertSQL)
 	return err
 }
 

@@ -16,10 +16,42 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-from lib.util import load_jsonc
+
+def load_jsonc(path):
+    """parse json with // comments. inlined so this tool needs no local package."""
+    text = Path(path).read_text()
+    out = []
+    in_str = False
+    esc = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+        elif c == "/" and i + 1 < len(text) and text[i + 1] == "/":
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return json.loads("".join(out))
+
 
 PATTERNS = (
     re.compile(r"raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+?)(?:[?#].*)?$"),
