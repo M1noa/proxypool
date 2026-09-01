@@ -1,8 +1,11 @@
 package output
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,7 +13,7 @@ import (
 	"github.com/M1noa/proxypool/internal/pyfmt"
 )
 
-// Encode ports write_outputs' json.dumps(records, indent=2): array of
+// EncodeTo ports write_outputs' json.dumps(records, indent=2): array of
 // objects, fixed key order per record (15 keys, or 21 with Check set), no
 // trailing newline, non-ascii escaped to \uXXXX, <>& left unescaped - the
 // opposite of encoding/json's defaults on both axes, hence hand-rolled.
@@ -21,12 +24,26 @@ import (
 // in has no order of its own; python emitted them in the order each source
 // declared them, which is the one place this file's bytes differ from what
 // python wrote.
-func Encode(records []*Record) []byte {
-	var b strings.Builder
-	writeArray(&b, records, 0, func(b *strings.Builder, r *Record, ind int) {
+//
+// it streams because a full run's array is a few hundred megabytes and the
+// records it is built from are all still resident: buffering the whole thing to
+// hand to os.WriteFile costs that much again for as long as the write takes.
+// bufio latches the first write error and no-ops after it, so the single Flush
+// check covers every write above it.
+func EncodeTo(w io.Writer, records []*Record) error {
+	b := bufio.NewWriterSize(w, 1<<16)
+	writeArray(b, records, 0, func(b *bufio.Writer, r *Record, ind int) {
 		writeObjectPairs(b, recordPairs(r), ind)
 	})
-	return []byte(b.String())
+	return b.Flush()
+}
+
+// Encode returns what EncodeTo writes. only tests want the whole array in
+// memory at once; the pipeline streams it to the file.
+func Encode(records []*Record) []byte {
+	var buf bytes.Buffer
+	_ = EncodeTo(&buf, records) // a bytes.Buffer write cannot fail
+	return buf.Bytes()
 }
 
 type kv struct {
@@ -72,7 +89,7 @@ func derefAny[T any](p *T) any {
 	return *p
 }
 
-func writeValue(b *strings.Builder, v any, indent int) {
+func writeValue(b *bufio.Writer, v any, indent int) {
 	switch t := v.(type) {
 	case nil:
 		b.WriteString("null")
@@ -91,7 +108,7 @@ func writeValue(b *strings.Builder, v any, indent int) {
 	case float64:
 		b.WriteString(pyfmt.Float(t))
 	case []string:
-		writeArray(b, t, indent, func(b *strings.Builder, s string, _ int) { writeJSONString(b, s) })
+		writeArray(b, t, indent, func(b *bufio.Writer, s string, _ int) { writeJSONString(b, s) })
 	case []any:
 		writeArray(b, t, indent, writeValue)
 	case map[string]any:
@@ -116,7 +133,7 @@ func mapToPairs(m map[string]any) []kv {
 
 // writeArray renders a json array with python's indent=2 layout: "[]" when
 // empty, otherwise one item per line at indent+1.
-func writeArray[T any](b *strings.Builder, items []T, indent int, writeItem func(*strings.Builder, T, int)) {
+func writeArray[T any](b *bufio.Writer, items []T, indent int, writeItem func(*bufio.Writer, T, int)) {
 	if len(items) == 0 {
 		b.WriteString("[]")
 		return
@@ -135,7 +152,7 @@ func writeArray[T any](b *strings.Builder, items []T, indent int, writeItem func
 	b.WriteByte(']')
 }
 
-func writeObjectPairs(b *strings.Builder, pairs []kv, indent int) {
+func writeObjectPairs(b *bufio.Writer, pairs []kv, indent int) {
 	if len(pairs) == 0 {
 		b.WriteString("{}")
 		return
@@ -160,7 +177,7 @@ func writeObjectPairs(b *strings.Builder, pairs []kv, indent int) {
 // backslash and control chars get short escapes, other control chars and
 // every non-ascii code point become \uXXXX (surrogate pairs above U+FFFF),
 // and <>& are left alone.
-func writeJSONString(b *strings.Builder, s string) {
+func writeJSONString(b *bufio.Writer, s string) {
 	b.WriteByte('"')
 	for _, r := range s {
 		switch r {

@@ -15,6 +15,7 @@ import (
 	"github.com/M1noa/proxypool/internal/flows"
 	"github.com/M1noa/proxypool/internal/geoip"
 	"github.com/M1noa/proxypool/internal/history"
+	"github.com/M1noa/proxypool/internal/memwatch"
 	"github.com/M1noa/proxypool/internal/output"
 	"github.com/M1noa/proxypool/internal/pyfmt"
 )
@@ -83,6 +84,12 @@ func Run(ctx context.Context, o Options) error {
 	logf := o.Logf
 	tRun := time.Now()
 
+	// silent unless the process crosses half of system ram, which a healthy run
+	// does not come close to. when it does speak, it says where the memory is
+	// before it tries to reclaim any.
+	watch := &memwatch.Watcher{Logf: logf}
+	defer watch.Start(ctx)()
+
 	all, err := config.Load(o.SourcesPath)
 	if err != nil {
 		return err
@@ -132,7 +139,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	if !o.SkipCheck {
-		if items, err = checkPhase(ctx, o, items, tRun); err != nil {
+		if items, err = checkPhase(ctx, o, items, tRun, watch); err != nil {
 			return err
 		}
 	}
@@ -157,7 +164,7 @@ func Run(ctx context.Context, o Options) error {
 // checkPhase fills in country, asn and ip_type, probes every record's claimed
 // protocols, and folds the resulting history into per-record scores. it returns
 // only the records that answered.
-func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time) ([]*item, error) {
+func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, watch *memwatch.Watcher) ([]*item, error) {
 	logf := o.Logf
 
 	if !o.SkipGeoIP {
@@ -188,6 +195,11 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time) (
 			return nil, err
 		}
 		hist = h
+		// duckdb's memory is cgo memory, invisible to runtime.MemStats, so the
+		// watchdog has to ask duckdb itself. h, not hist: hist is cleared below
+		// once history is done with, and h's own handle reports a closed database
+		// as no reading rather than a crash.
+		watch.Probe(h.MemoryUsage)
 		defer func() {
 			if hist != nil {
 				hist.Close()
@@ -368,13 +380,28 @@ func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sou
 	if err := os.MkdirAll(o.Out, 0o755); err != nil {
 		return 0, err
 	}
-	if err := os.WriteFile(filepath.Join(o.Out, "proxies.json"), output.Encode(recs), 0o644); err != nil {
+	if err := writeJSON(filepath.Join(o.Out, "proxies.json"), recs); err != nil {
 		return 0, err
 	}
 	if o.SkipReadme {
 		return len(recs), nil
 	}
 	return len(recs), output.UpdateReadme(o.Readme, recs, fetchedPerSource, sources, time.Time{})
+}
+
+// writeJSON streams the array straight to the file. os.WriteFile would want the
+// whole few-hundred-megabyte encoding as one []byte, on top of the records it
+// was encoded from.
+func writeJSON(path string, recs []*output.Record) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if err := output.EncodeTo(f, recs); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // filterSources applies -sources, -exclude and -format, keeping sources.jsonc's

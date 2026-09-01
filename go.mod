@@ -5,6 +5,8 @@ go 1.26.4
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/dop251/goja v0.0.0-20260826204918-8f1c0696a37b
+	github.com/marcboeker/go-duckdb/v2 v2.4.3
+	github.com/oschwald/maxminddb-golang/v2 v2.5.0
 	github.com/shirou/gopsutil/v4 v4.26.7
 	golang.org/x/net v0.58.0
 	golang.org/x/text v0.41.0
@@ -33,8 +35,6 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/marcboeker/go-duckdb/arrowmapping v0.0.21 // indirect
 	github.com/marcboeker/go-duckdb/mapping v0.0.21 // indirect
-	github.com/marcboeker/go-duckdb/v2 v2.4.3 // indirect
-	github.com/oschwald/maxminddb-golang/v2 v2.5.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect

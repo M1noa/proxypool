@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
 	"os"
 
@@ -52,24 +52,31 @@ type prevRecord struct {
 // alongside this run's, so one no source happened to republish this hour is not
 // dropped on the spot. entries already in seen are skipped. existed reports
 // whether the file was there at all, which is what python gates its log line on.
+//
+// it decodes one entry at a time rather than into a []prevRecord, because the
+// file is a few hundred megabytes and most of its entries are in seen already:
+// slurping it would hold the bytes, every decoded row, and the items built from
+// the survivors all at once, when only the last of those outlives this call.
 func loadPrevious(path string, seen map[string]bool) (items []*item, existed bool, err error) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, err
 	}
+	defer f.Close()
 
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.UseNumber() // source_meta values round-trip verbatim
-	var rows []prevRecord
-	if err := dec.Decode(&rows); err != nil {
+	dec := json.NewDecoder(bufio.NewReaderSize(f, 1<<16))
+	dec.UseNumber()                        // source_meta values round-trip verbatim
+	if _, err := dec.Token(); err != nil { // the opening '['
 		return nil, true, err
 	}
-
-	for i := range rows {
-		p := &rows[i]
+	for dec.More() {
+		var p prevRecord
+		if err := dec.Decode(&p); err != nil {
+			return nil, true, err
+		}
 		rec := &extract.Record{
 			IP:                p.IP,
 			IPVersion:         p.IPVersion,

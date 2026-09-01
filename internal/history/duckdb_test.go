@@ -166,6 +166,72 @@ func TestUpdateStateFailureKeepsRTEMAAndFirstSeen(t *testing.T) {
 	}
 }
 
+// every outcome now folds in through one set-based statement, so a batch that
+// mixes a key already in proxy_state with a brand new one exercises both sides
+// of the ON CONFLICT at once — the single-row loop this replaced could not get
+// one branch wrong without getting both wrong, and this can.
+func TestUpdateStateBatchMixesInsertAndUpdate(t *testing.T) {
+	h := openTest(t)
+	ts1, ts2 := "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z"
+
+	seed := check.Outcome{IP: "1.1.1.1", Port: 80, Proto: "http", Alive: true, RT: ip(100)}
+	if err := h.UpdateState([]check.Outcome{seed}, ts1, map[Key]State{}); err != nil {
+		t.Fatalf("seed UpdateState: %v", err)
+	}
+	prev, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+
+	if err := h.UpdateState([]check.Outcome{
+		{IP: "1.1.1.1", Port: 80, Proto: "http", Alive: false},              // conflicts
+		{IP: "2.2.2.2", Port: 81, Proto: "socks5", Alive: true, RT: ip(50)}, // fresh
+	}, ts2, prev); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	state, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+	if len(state) != 2 {
+		t.Fatalf("proxy_state holds %d rows, want 2", len(state))
+	}
+	if st := state[Key{"1.1.1.1", 80, "http"}]; st.CheckCount != 2 || st.FailsStreak != 1 || st.OKCount != 1 {
+		t.Errorf("conflicting row = %+v, want checks=2 streak=1 ok=1", st)
+	}
+	if st := state[Key{"2.2.2.2", 81, "socks5"}]; st.CheckCount != 1 || st.OKCount != 1 {
+		t.Errorf("fresh row = %+v, want checks=1 ok=1", st)
+	}
+}
+
+// duckdb rejects a statement that would update one row twice, and a batch is
+// only as safe as merge()'s dedupe upstream of it. collapsing to the last
+// outcome keeps a repeated key behaving the way the row-at-a-time loop did
+// instead of failing the whole hourly run.
+func TestUpdateStateDuplicateKeyKeepsLastOutcome(t *testing.T) {
+	h := openTest(t)
+	ts := "2026-01-01T00:00:00Z"
+	if err := h.UpdateState([]check.Outcome{
+		{IP: "1.1.1.1", Port: 80, Proto: "http", Alive: true, RT: ip(100)},
+		{IP: "1.1.1.1", Port: 80, Proto: "http", Alive: false},
+	}, ts, map[Key]State{}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	state, err := h.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+	if len(state) != 1 {
+		t.Fatalf("proxy_state holds %d rows, want 1", len(state))
+	}
+	st := state[Key{"1.1.1.1", 80, "http"}]
+	if st.FailsStreak != 1 || st.LastOKTS != nil {
+		t.Errorf("state = %+v, want the later failing outcome (streak=1, no last_ok_ts)", st)
+	}
+}
+
 func TestScores(t *testing.T) {
 	h := openTest(t)
 	// insert directly so the values under test aren't also exercising
