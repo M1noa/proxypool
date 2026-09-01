@@ -5,12 +5,10 @@
 
 hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
 
-outputs live on the auto-reset [`output`](https://github.com/M1noa/proxypool/tree/output) branch (always 1 commit, easy to clone):
-
 | file | what |
 |---|---|
 | [proxies.json](https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json) | all live proxies, sorted by response time: protocols, country, anonymity, sources |
-| [history.duckdb](https://raw.githubusercontent.com/M1noa/proxypool/output/history.duckdb) | per-proxy reliability/quality history (duckdb) |
+| [proxies.minoa.cat](https://proxies.minoa.cat) | api that can filter and return proxies in any format (eg http.txt) |
 
 sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) from [ipverse/as-metadata](https://github.com/ipverse/as-metadata) (cc0).
 
