@@ -79,7 +79,7 @@ func runPipeline(ctx context.Context, argv []string) error {
 
 	fs.IntVar(&o.Limit, "limit", 0, "cap records fed to the checker")
 	fs.IntVar(&o.Concurrency, "concurrency", 0, "override derived checker concurrency")
-	fs.DurationVar(&o.Timeout, "timeout", 0, "per-probe timeout (0 uses 5s)")
+	fs.DurationVar(&o.Timeout, "timeout", 0, "per-probe timeout (0 uses 6.5s)")
 	fs.DurationVar(&o.Budget, "budget", 0, "wall-clock budget (0 uses 1h57m)")
 	fs.StringVar(&o.Out, "out", "", "output directory (default ./output)")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "compute everything, write nothing")

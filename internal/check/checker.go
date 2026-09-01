@@ -45,7 +45,11 @@ const (
 // 1123 mbps link sustained 590 probes/s at 6% cpu and ~35 mbps. each budget in
 // deriveConcurrency is "how many probes fit in flight before this runs out".
 const (
-	probeSeconds   = 4.0       // mean occupancy: most probes are dead and time out
+	// mean occupancy: most probes are dead and time out, so this tracks
+	// timeoutDefault rather than standing on its own — a longer timeout makes each
+	// probe idle longer for the same cpu and wire cost, which is why the budgets
+	// below multiply by it. measured 4.0 against a 5s timeout; scaled for 6.5s.
+	probeSeconds   = 5.2
 	probeCPUms     = 0.5       // tls handshake and teardown, per probe
 	probeRAMBytes  = 256 << 10 // goroutine, its parallel transports, tls buffers
 	probeWireBytes = 12 << 10  // handshake plus a 204, rounded up
@@ -58,7 +62,7 @@ const (
 // timeoutDefault and recordCap are vars, not consts, only so tests can shrink
 // them instead of waiting out a real 5s/25s timeout.
 var (
-	timeoutDefault = 5 * time.Second
+	timeoutDefault = 6500 * time.Millisecond
 	// recordCap is a cheap backstop around one record's whole check (tcp open,
 	// every probe, the anonymity echo): python's RECORD_CAP existed to force a
 	// wedged coroutine's cancellation to actually take; context cancellation
