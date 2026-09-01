@@ -14,6 +14,7 @@ import {
 import { getDataset } from "./data";
 import { applyFilters } from "./filter";
 import { CONTENT_TYPES, render, renderError } from "./render";
+import { watchdog } from "./watchdog";
 
 function errorResponse(format: Format, status: number, code: string, message: string): Response {
   return new Response(renderError(format, status, code, message), {
@@ -149,5 +150,11 @@ export default {
       console.error(JSON.stringify({ message: "unhandled error", error: e instanceof Error ? e.message : String(e), path: url.pathname }));
       return errorResponse(format, 500, "internal_error", "something broke on our end");
     }
+  },
+
+  // cron trigger, unrelated to serving. see watchdog.ts -- it nudges the fetch
+  // workflow when github's scheduler has gone quiet for too long.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(watchdog(env));
   },
 } satisfies ExportedHandler<Env>;

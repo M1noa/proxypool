@@ -12,6 +12,11 @@
   "routes": [
     { "pattern": "proxies.minoa.cat", "custom_domain": true }
   ],
+  // watchdog only, see src/watchdog.ts. off :00 and the :15/:30/:45 marks, and
+  // interleaved with the fetch workflow's own "3-58/5" slots.
+  "triggers": {
+    "crons": ["7,22,37,52 * * * *"]
+  },
   "observability": {
     "enabled": true,
     "logs": { "head_sampling_rate": 1 },
