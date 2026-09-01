@@ -16,6 +16,15 @@ on:
     # and off the :15/:30/:45 marks everyone else rounds to.
     - cron: "3-58/5 * * * *"
   workflow_dispatch:
+    inputs:
+      gated:
+        # an external scheduler dispatching on its own cron wants the same
+        # cadence gate a scheduled fire gets, otherwise every dispatch is a full
+        # run. a human clicking "run workflow" wants the run they asked for, so
+        # the default is off and only the caller opts in.
+        description: respect the cadence gate instead of running now
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,11 +53,13 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           EVENT: ${{ github.event_name }}
+          GATED: ${{ inputs.gated }}
         run: |
           set -uo pipefail
           due() { echo "due=$1" >> "$GITHUB_OUTPUT"; exit 0; }
 
-          if [ "$EVENT" != "schedule" ]; then
+          # empty on a schedule event, where the first test already decided
+          if [ "$EVENT" != "schedule" ] && [ "$GATED" != "true" ]; then
             echo "manual run, not gated"
             due true
           fi
