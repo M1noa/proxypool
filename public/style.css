@@ -105,7 +105,7 @@ body {
     background: transparent url('noise.png') repeat 0 0;
     opacity: 0.9;
     pointer-events: none;
-    z-index: 1;
+    z-index: 3; /* over .container (2), under the url bar (20) */
     animation: noise-animation 0.2s infinite;
     visibility: visible;
 }
