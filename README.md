@@ -1,9 +1,9 @@
-# [proxy pool](https://proxies.minoa.cat)
+# [ProxyPool](https://proxies.minoa.cat)
 > THIS PROJECT WAS MADE PARTIALLY USING AGENTIC AI CODING TOOLS
 
 ![total](https://img.shields.io/badge/total%20proxies-2801-brightgreen) ![avg response](https://img.shields.io/badge/avg%20response-1635ms-blue) ![last check](https://img.shields.io/badge/last%20check-2026--09--02-green) ![fetch](https://github.com/M1noa/proxypool/actions/workflows/fetch.yml/badge.svg)
 
-hourly refreshed proxy lists. fetched from public sources, merged, checked live, dead ones dropped.
+hourly refreshed proxy lists. fetched from public sources, and checked...
 
 | file | what |
 |---|---|
