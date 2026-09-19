@@ -1,6 +1,7 @@
-// live url builder + copy + random theme. page works without any of this.
+// agents page: live url builder + copy + random theme + live match stats.
+// mirrors script.js for the /uas api. the page works without any of this.
 document.addEventListener('DOMContentLoaded', () => {
-    // --- random theme (pink / white / pastel), same as crypto.minoa.cat ---
+    // --- random theme (pink / white / pastel), same as the proxies page ---
     function randomPastel() {
         const hue = Math.floor(Math.random() * 360);
         return `hsl(${hue}, ${30 + Math.floor(Math.random() * 40)}%, ${70 + Math.floor(Math.random() * 20)}%)`;
@@ -37,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.documentElement.setAttribute('data-theme', theme);
     }
 
-    // --- notifications: dedupe repeats into a stacking counter instead of piling up toasts ---
+    // --- notifications ---
     const container = document.getElementById('notification-container');
     const activeNotifications = new Map();
 
@@ -57,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!container) return;
         const key = `${type}:${message}`;
         const existing = activeNotifications.get(key);
-
         if (existing) {
             existing.count += 1;
             existing.countNode.textContent = `×${existing.count}`;
@@ -68,27 +68,22 @@ document.addEventListener('DOMContentLoaded', () => {
             existing.hideTimeout = setTimeout(() => hideNotification(key), 2600);
             return;
         }
-
         const el = document.createElement('div');
         el.className = `notification ${type}`;
-
         const messageNode = document.createElement('span');
         messageNode.className = 'notification__message';
         messageNode.textContent = message;
-
         const countNode = document.createElement('span');
         countNode.className = 'notification__count';
         countNode.textContent = '×1';
-
         el.append(messageNode, countNode);
         container.appendChild(el);
-
         const entry = { element: el, count: 1, countNode, hideTimeout: null, refreshTimeout: null };
         activeNotifications.set(key, entry);
         entry.hideTimeout = setTimeout(() => hideNotification(key), 2600);
     }
 
-    // --- live stat badges (total proxies, avg response, last check) ---
+    // --- live stat badges (total agents, top browser/os, generated date) ---
     const badges = document.getElementById('badges');
     if (badges) {
         function shieldsUrl(label, message, color) {
@@ -96,14 +91,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return `https://img.shields.io/badge/${esc(label)}-${esc(message)}-${color}`;
         }
 
-        fetch('/stats')
+        fetch('/ua-stats')
             .then((r) => r.json())
             .then((stats) => {
-                const lastCheck = stats.last_check ? stats.last_check.slice(0, 10) : 'unknown';
+                const gen = stats.generated_at ? stats.generated_at.slice(0, 10) : 'unknown';
                 const items = [
-                    ['total proxies', String(stats.total), 'brightgreen'],
-                    ['avg response', `${stats.avg_response_ms}ms`, 'blue'],
-                    ['last check', lastCheck, 'green'],
+                    ['total agents', String(stats.total), 'brightgreen'],
+                    ['top browser', String(stats.top_browser), 'blue'],
+                    ['top os', String(stats.top_os), 'blue'],
+                    ['generated', gen, 'green'],
                 ];
                 for (const [label, message, color] of items) {
                     const img = document.createElement('img');
@@ -117,27 +113,15 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(() => {});
     }
 
-    // --- live url building, collapsed to the shortest equivalent route ---
+    // --- live url building ---
     const form = document.getElementById('generator');
     const preview = document.getElementById('url-preview');
     const copyBtn = document.getElementById('copy-btn');
 
-    // docs / 404 share this script but have no generator form
     if (!form || !preview || !copyBtn) return;
 
-    // aliases the worker accepts for shortcut routes -- pick the shortest
-    const ALIASES = {
-        anonymous: 'anon',
-        education_research: 'edu',
-        government_admin: 'gov',
-    };
-
-    // fields that must all be unset for a shortcut route to apply
-    const REST_FIELDS = [
-        'order', 'https', 'country', 'port', 'port_min', 'port_max', 'asn',
-        'as_org', 'ip_version', 'source', 'min_reliability', 'min_quality',
-        'response_min', 'response_max', 'first_seen_after', 'last_seen_after',
-    ];
+    const DIMS = ['browser', 'os', 'device'];
+    const REST_FIELDS = ['order', 'version', 'min_share', 'max_share'];
 
     function buildUrl() {
         const origin = window.location.origin;
@@ -145,78 +129,66 @@ document.addEventListener('DOMContentLoaded', () => {
         const get = (key) => (data.get(key) || '').toString().trim();
         const getAll = (key) => data.getAll(key).map(String).map((s) => s.trim()).filter(Boolean);
 
-        // picking every option in a dimension filters nothing -- drop it, shorter url, same result
         const collapseFull = (values, name) => {
             const total = form.querySelectorAll(`input[name="${name}"]`).length;
             return values.length === total ? [] : values;
         };
 
-        const types = collapseFull(getAll('type'), 'type');
-        const anonymity = collapseFull(getAll('anonymity'), 'anonymity');
-        const ipTypes = collapseFull(getAll('ip_type'), 'ip_type');
+        const picked = {};
+        for (const d of DIMS) picked[d] = collapseFull(getAll(d), d);
         const format = get('format') || 'json';
 
-        const sortDefault = get('sort') === '' || get('sort') === 'response';
+        const sortDefault = get('sort') === '' || get('sort') === 'share';
         const limitDefault = get('limit') === '' || get('limit') === '0';
         const restDefault = sortDefault && limitDefault && REST_FIELDS.every((f) => get(f) === '');
 
         if (restDefault) {
-            const dims = [types.length > 0, anonymity.length > 0, ipTypes.length > 0].filter(Boolean).length;
-            if (dims === 0) {
-                return format === 'json' ? `${origin}/list` : `${origin}/all.${format}`;
+            const dims = DIMS.filter((d) => picked[d].length > 0);
+            if (dims.length === 0) {
+                return format === 'json' ? `${origin}/uas` : `${origin}/ua-all.${format}`;
             }
-            if (dims === 1) {
-                if (types.length === 1) return `${origin}/${types[0]}.${format}`;
-                if (anonymity.length === 1) return `${origin}/${ALIASES[anonymity[0]] || anonymity[0]}.${format}`;
-                if (ipTypes.length === 1) return `${origin}/${ALIASES[ipTypes[0]] || ipTypes[0]}.${format}`;
+            if (dims.length === 1 && picked[dims[0]].length === 1) {
+                return `${origin}/ua-${picked[dims[0]][0]}.${format}`;
             }
         }
 
         const params = new URLSearchParams();
         for (const [key, value] of data.entries()) {
-            if (key === 'type' || key === 'anonymity' || key === 'ip_type') continue;
+            if (DIMS.includes(key)) continue;
             const v = String(value).trim();
             if (v !== '') params.append(key, v);
         }
-        for (const t of types) params.append('type', t);
-        for (const a of anonymity) params.append('anonymity', a);
-        for (const it of ipTypes) params.append('ip_type', it);
-        return `${origin}/list?${params.toString()}`;
+        for (const d of DIMS) for (const v of picked[d]) params.append(d, v);
+        return `${origin}/uas?${params.toString()}`;
     }
 
-    // --- live match stats: same filters as json, count + average locally ---
-    const SHORTCUT_DIMS = {
-        http: 'type', https: 'type', socks4: 'type', socks5: 'type',
-        elite: 'anonymity', anonymous: 'anonymity', anon: 'anonymity',
-        transparent: 'anonymity', unknown: 'anonymity',
-        hosting: 'ip_type', isp: 'ip_type', business: 'ip_type',
-        education_research: 'ip_type', edu: 'ip_type',
-        government_admin: 'ip_type', gov: 'ip_type',
+    // --- live match stats: fetch the built url as json, count + average locally
+    // shortcut paths pin one dim, so they expand back to /uas query form here
+    // (the path would otherwise override format=json on the worker side).
+    const UA_SHORTCUT_DIMS = {
+        chrome: 'browser', firefox: 'browser', safari: 'browser', edge: 'browser',
+        opera: 'browser', samsung: 'browser', vivaldi: 'browser', yandex: 'browser',
+        ie: 'browser', windows: 'os', macos: 'os', linux: 'os', android: 'os',
+        ios: 'os', chromeos: 'os', desktop: 'device', mobile: 'device', tablet: 'device',
     };
 
     function liveFetchUrl(url) {
         const u = new URL(url);
-        const m = /^\/([a-z0-9_]+)\.(txt|json|jsonl|csv)$/.exec(u.pathname);
+        const m = /^\/ua-([a-z0-9_]+)\.(txt|json|jsonl|csv)$/.exec(u.pathname);
         if (m) {
-            if (m[1] === 'all') {
-                const q = new URLSearchParams(u.search);
-                q.set('format', 'json');
-                q.delete('limit');
-                return `${u.origin}/list?${q.toString()}`;
-            }
-            const dim = SHORTCUT_DIMS[m[1]];
-            if (!dim) return null;
+            const dim = m[1] === 'all' ? null : UA_SHORTCUT_DIMS[m[1]];
+            if (m[1] !== 'all' && !dim) return null;
             const q = new URLSearchParams(u.search);
             q.set('format', 'json');
-            q.delete('limit');
-            q.set(dim, m[1]);
-            return `${u.origin}/list?${q.toString()}`;
+            q.delete('limit'); // probe counts every match, not the capped link
+            if (dim) q.set(dim, m[1]);
+            return `${u.origin}/uas?${q.toString()}`;
         }
-        if (u.pathname !== '/list') return null;
+        if (u.pathname !== '/uas') return null;
         const q = new URLSearchParams(u.search);
         q.set('format', 'json');
         q.delete('limit');
-        return `${u.origin}/list?${q.toString()}`;
+        return `${u.origin}/uas?${q.toString()}`;
     }
 
     function liveLimit(url) {
@@ -251,16 +223,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     liveExamples.innerHTML = '';
                     return;
                 }
-                const avg = records.reduce((s, r) => s + (r.response_time_ms || 0), 0) / n;
-                liveAvg.textContent = `${Math.round(avg)}ms`;
+                const avg = records.reduce((s, r) => s + (r.share || 0), 0) / n;
+                liveAvg.textContent = avg.toFixed(4);
                 liveExamples.innerHTML = '';
                 for (const r of records.slice(0, 3)) {
-                    const proto = (r.protocols && r.protocols[0]) || 'http';
                     const li = document.createElement('li');
                     const code = document.createElement('code');
-                    code.textContent = `${proto}://${r.ip}:${r.port}`;
+                    code.textContent = r.ua.length > 110 ? r.ua.slice(0, 110) + '…' : r.ua;
+                    code.title = r.ua;
                     const span = document.createElement('span');
-                    span.textContent = ` — ${r.country || '??'}, ${r.anonymity || 'unknown'}, ${r.response_time_ms}ms`;
+                    span.textContent = ` — ${r.browser} ${r.browser_version}, ${r.os}, share ${Number(r.share).toFixed(4)}`;
                     li.append(code, span);
                     liveExamples.appendChild(li);
                 }
@@ -278,14 +250,12 @@ document.addEventListener('DOMContentLoaded', () => {
     form.addEventListener('change', refresh);
     refresh();
 
-    // presets configure the form instead of navigating, with js on
     document.querySelectorAll('.presets a[data-preset]').forEach((a) => {
         a.addEventListener('click', (e) => {
             e.preventDefault();
             const { dim, value, format } = a.dataset;
-
             if (dim === 'all') {
-                form.querySelectorAll('input[name="type"], input[name="anonymity"], input[name="ip_type"]')
+                form.querySelectorAll('input[name="browser"], input[name="os"], input[name="device"]')
                     .forEach((el) => { el.checked = false; });
             } else if (dim) {
                 form.querySelectorAll(`input[name="${dim}"]`).forEach((el) => { el.checked = false; });
@@ -294,18 +264,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (target) target.checked = true;
                 }
             }
-
             if (format) {
                 const f = form.querySelector(`input[name="format"][value="${format}"]`);
                 if (f) f.checked = true;
             }
-
             refresh();
         });
     });
 
-    // js on: navigate straight to the (possibly shortcut) url instead of a
-    // plain GET submit, so /socks4.txt-style collapsing actually gets used
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         window.location.href = buildUrl();
@@ -316,7 +282,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await navigator.clipboard.writeText(url);
         } catch {
-            // clipboard api can fail on insecure contexts / permissions
             const ta = document.createElement('textarea');
             ta.value = url;
             document.body.appendChild(ta);
@@ -325,7 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ta.remove();
         }
         copyBtn.classList.remove('copy-success');
-        void copyBtn.offsetWidth; // restart animation
+        void copyBtn.offsetWidth;
         copyBtn.classList.add('copy-success');
         notify('url copied to clipboard');
     });

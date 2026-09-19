@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>user agents — proxies.minoa.cat</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐱</text></svg>">
+    <meta name="description" content="realistic current user agent strings with usage share weights. txt, json, csv. updated hourly.">
+    <meta name="author" content="M1noa">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#FFC0CB">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://proxies.minoa.cat/useragents.html">
+    <meta property="og:title" content="user agents — proxies.minoa.cat">
+    <meta property="og:description" content="realistic current user agent strings with usage share weights. txt, json, csv. updated hourly.">
+    <meta property="og:site_name" content="proxies.minoa.cat">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:creator" content="@M1noa">
+    <link rel="canonical" href="https://proxies.minoa.cat/useragents.html">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+</head>
+<body>
+    <div class="noise-bg"></div>
+    <div class="container">
+        <header>
+            <h1>user agents</h1>
+            <p>realistic current user agents with share weights, updated hourly</p>
+            <div class="badges" id="badges">
+                <img src="https://github.com/M1noa/proxypool/actions/workflows/fetch.yml/badge.svg" alt="fetch workflow status" width="90" height="20">
+            </div>
+        </header>
+
+        <nav class="presets" aria-label="presets">
+            <a href="/uas" data-preset data-dim="all" data-format="json">all.json</a>
+            <a href="/ua-all.txt" data-preset data-dim="all" data-format="txt">all.txt</a>
+            <a href="/ua-chrome.txt" data-preset data-dim="browser" data-value="chrome" data-format="txt">chrome.txt</a>
+            <a href="/ua-firefox.txt" data-preset data-dim="browser" data-value="firefox" data-format="txt">firefox.txt</a>
+            <a href="/ua-safari.txt" data-preset data-dim="browser" data-value="safari" data-format="txt">safari.txt</a>
+            <a href="/ua-mobile.txt" data-preset data-dim="device" data-value="mobile" data-format="txt">mobile.txt</a>
+        </nav>
+
+        <main>
+            <!-- the form works with js disabled: it submits a plain GET to /uas -->
+            <form id="generator" action="/uas" method="get" data-base="/uas" data-shortcut-prefix="ua-">
+
+                <section class="band">
+                    <h2>browser</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="b-chrome" name="browser" value="chrome">
+                        <label for="b-chrome">chrome</label>
+                        <input type="checkbox" id="b-firefox" name="browser" value="firefox">
+                        <label for="b-firefox">firefox</label>
+                        <input type="checkbox" id="b-safari" name="browser" value="safari">
+                        <label for="b-safari">safari</label>
+                        <input type="checkbox" id="b-edge" name="browser" value="edge">
+                        <label for="b-edge">edge</label>
+                        <input type="checkbox" id="b-opera" name="browser" value="opera">
+                        <label for="b-opera">opera</label>
+                        <input type="checkbox" id="b-samsung" name="browser" value="samsung">
+                        <label for="b-samsung">samsung</label>
+                        <input type="checkbox" id="b-vivaldi" name="browser" value="vivaldi">
+                        <label for="b-vivaldi">vivaldi</label>
+                        <input type="checkbox" id="b-yandex" name="browser" value="yandex">
+                        <label for="b-yandex">yandex</label>
+                        <input type="checkbox" id="b-ie" name="browser" value="ie">
+                        <label for="b-ie">ie</label>
+                    </div>
+                    <p class="hint">none = all. txt shows one bare user agent per line.</p>
+                </section>
+
+                <section class="band">
+                    <h2>format</h2>
+                    <div class="pills">
+                        <input type="radio" id="f-json" name="format" value="json" checked>
+                        <label for="f-json">json</label>
+                        <input type="radio" id="f-txt" name="format" value="txt">
+                        <label for="f-txt">txt</label>
+                        <input type="radio" id="f-csv" name="format" value="csv">
+                        <label for="f-csv">csv</label>
+                        <input type="radio" id="f-jsonl" name="format" value="jsonl">
+                        <label for="f-jsonl">jsonl</label>
+                    </div>
+                </section>
+
+                <section class="band">
+                    <h2>os</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="o-win" name="os" value="windows">
+                        <label for="o-win">windows</label>
+                        <input type="checkbox" id="o-mac" name="os" value="macos">
+                        <label for="o-mac">macos</label>
+                        <input type="checkbox" id="o-linux" name="os" value="linux">
+                        <label for="o-linux">linux</label>
+                        <input type="checkbox" id="o-android" name="os" value="android">
+                        <label for="o-android">android</label>
+                        <input type="checkbox" id="o-ios" name="os" value="ios">
+                        <label for="o-ios">ios</label>
+                        <input type="checkbox" id="o-cros" name="os" value="chromeos">
+                        <label for="o-cros">chromeos</label>
+                    </div>
+                </section>
+
+                <section class="band">
+                    <h2>device</h2>
+                    <div class="pills">
+                        <input type="checkbox" id="d-desktop" name="device" value="desktop">
+                        <label for="d-desktop">desktop</label>
+                        <input type="checkbox" id="d-mobile" name="device" value="mobile">
+                        <label for="d-mobile">mobile</label>
+                        <input type="checkbox" id="d-tablet" name="device" value="tablet">
+                        <label for="d-tablet">tablet</label>
+                    </div>
+                </section>
+
+                <section class="band">
+                    <h2>sort &amp; limit</h2>
+                    <div class="fields">
+                        <label class="field">sort
+                            <select name="sort">
+                                <option value="share" selected>share</option>
+                                <option value="browser">browser</option>
+                                <option value="version">version</option>
+                                <option value="os">os</option>
+                                <option value="device">device</option>
+                                <option value="random">random</option>
+                            </select>
+                        </label>
+                        <label class="field">order
+                            <select name="order">
+                                <option value="" selected>auto</option>
+                                <option value="asc">asc</option>
+                                <option value="desc">desc</option>
+                            </select>
+                        </label>
+                        <label class="field">limit (0 = all)
+                            <input type="number" name="limit" min="0" max="1000000" value="0">
+                        </label>
+                        <label class="field">browser major (comma-sep)
+                            <input type="text" name="version" placeholder="154, 155" autocapitalize="off" autocorrect="off" spellcheck="false">
+                        </label>
+                    </div>
+                </section>
+
+                <section class="band">
+                    <h2>share</h2>
+                    <div class="fields">
+                        <label class="field">min share (0-1)
+                            <input type="number" name="min_share" min="0" max="1" step="0.001" placeholder="0">
+                        </label>
+                        <label class="field">max share (0-1)
+                            <input type="number" name="max_share" min="0" max="1" step="0.001" placeholder="1">
+                        </label>
+                    </div>
+                    <div class="live-stats" id="live-stats" hidden>
+                        <p class="hint"><span id="live-count">–</span> agents match · avg share <span id="live-avg">–</span></p>
+                        <ul class="examples" id="live-examples"></ul>
+                    </div>
+                </section>
+
+                <div class="url-bar">
+                    <div class="url-bar-inner">
+                        <code id="url-preview" class="url-preview">https://proxies.minoa.cat/uas</code>
+                        <button type="button" id="copy-btn" class="action-btn">copy</button>
+                        <button type="submit" class="action-btn" id="open-btn">open</button>
+                    </div>
+                    <noscript>
+                        <p class="hint url-noscript">javascript is off, the form still works. <strong>open</strong> takes you straight to your list. base url: <code>https://proxies.minoa.cat/uas</code> · spec: <a href="/docs.json">/docs.json</a></p>
+                    </noscript>
+                </div>
+            </form>
+        </main>
+
+        <footer>
+            <a href="https://github.com/M1noa/proxypool" class="footer-link" target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 16 16" fill="currentColor" height="1em" width="1em"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
+                <span>GitHub</span>
+            </a>
+            <a href="/docs.json" class="footer-link"><span>Docs</span></a>
+            <a href="/" class="footer-link"><span>Proxies</span></a>
+        </footer>
+    </div>
+
+    <div id="notification-container" aria-live="polite" aria-atomic="false"></div>
+
+    <script src="useragents.js"></script>
+</body>
+</html>

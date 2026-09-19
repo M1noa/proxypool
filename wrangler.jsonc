@@ -7,7 +7,7 @@
     "directory": "./public/",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/list", "/stats", "/*.txt", "/*.json", "/*.jsonl", "/*.csv", "!/docs.json"]
+    "run_worker_first": ["/list", "/stats", "/uas", "/ua-stats", "/*.txt", "/*.json", "/*.jsonl", "/*.csv", "!/docs.json"]
   },
   "routes": [
     { "pattern": "proxies.minoa.cat", "custom_domain": true }
@@ -24,6 +24,7 @@
   },
   "vars": {
     "UPSTREAM_URL": "https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json",
+    "UAS_URL": "https://raw.githubusercontent.com/M1noa/proxypool/output/useragents.json",
     "CACHE_TTL_SECONDS": "300"
   }
 }

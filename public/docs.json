@@ -5,7 +5,10 @@
   "base_url": "https://proxies.minoa.cat",
   "endpoint": {
     "path": "/list",
-    "methods": ["GET", "HEAD"],
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
     "cache": "responses cached 300s at the edge (stale-while-revalidate=60); data refreshes hourly upstream",
     "notes": [
       "bare /list with no query params returns the full upstream proxies.json untouched",
@@ -17,14 +20,27 @@
   },
   "stats_endpoint": {
     "path": "/stats",
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "cache": "cached 300s at the edge, same dataset as /list",
-    "response": { "total": "int", "avg_response_ms": "int", "last_check": "ISO 8601 of the newest last_checked" },
-    "notes": ["backs the badges on the homepage; not part of the filter api"]
+    "response": {
+      "total": "int",
+      "avg_response_ms": "int",
+      "last_check": "ISO 8601 of the newest last_checked"
+    },
+    "notes": [
+      "backs the badges on the homepage; not part of the filter api"
+    ]
   },
   "shortcuts": {
     "pattern": "/<name>.<ext>",
-    "extensions": ["txt", "json", "jsonl", "csv"],
+    "extensions": [
+      "txt",
+      "json",
+      "jsonl",
+      "csv"
+    ],
     "notes": [
       "a shortcut pins one filter dimension; every other param still works as a query string (/socks5.txt?country=us&limit=50)",
       "if the same filter appears in both the path and the query, the path wins",
@@ -60,13 +76,23 @@
     "type": {
       "alias": "protocol",
       "multi": true,
-      "values": ["http", "https", "socks4", "socks5"],
+      "values": [
+        "http",
+        "https",
+        "socks4",
+        "socks5"
+      ],
       "default": "all",
       "description": "proxy supports at least one selected protocol"
     },
     "anonymity": {
       "multi": true,
-      "values": ["elite", "anonymous", "transparent", "unknown"],
+      "values": [
+        "elite",
+        "anonymous",
+        "transparent",
+        "unknown"
+      ],
       "default": "all",
       "description": "unknown = no anonymity info in the data"
     },
@@ -76,36 +102,124 @@
       "example": "us,de,nl",
       "default": "all"
     },
-    "port": { "multi": true, "values": "integers 1-65535", "example": "80,443,8080", "default": "all" },
-    "port_min": { "values": "integer 1-65535", "default": null },
-    "port_max": { "values": "integer 1-65535", "default": null },
-    "asn": { "multi": true, "values": "AS numbers", "example": "13335,15169", "default": "all" },
-    "as_org": { "values": "case-insensitive substring of the AS org name", "example": "cloudflare", "default": null },
-    "source": { "multi": true, "values": "source names from the proxypool sources list", "example": "proxifly,hookzof", "default": "all" },
-    "ip_version": { "values": ["ipv4", "ipv6"], "default": "all" },
-    "ip_type": {
+    "port": {
       "multi": true,
-      "values": ["hosting", "business", "isp", "education_research", "government_admin", "unknown"],
+      "values": "integers 1-65535",
+      "example": "80,443,8080",
       "default": "all"
     },
-    "https": { "values": ["true", "false"], "default": "both", "description": "whether the proxy supports tls tunneling" },
-    "min_reliability": { "values": "0..1", "default": null, "description": "lifetime check success rate" },
-    "min_quality": { "values": "0..1", "default": null, "description": "composite quality score from proxypool history" },
-    "response_min": { "values": "ms integer", "default": null },
-    "response_max": { "values": "ms integer", "default": null },
-    "first_seen_after": { "values": "ISO 8601 datetime", "example": "2026-08-30T00:00:00Z", "default": null },
-    "last_seen_after": { "values": "ISO 8601 datetime", "default": null },
+    "port_min": {
+      "values": "integer 1-65535",
+      "default": null
+    },
+    "port_max": {
+      "values": "integer 1-65535",
+      "default": null
+    },
+    "asn": {
+      "multi": true,
+      "values": "AS numbers",
+      "example": "13335,15169",
+      "default": "all"
+    },
+    "as_org": {
+      "values": "case-insensitive substring of the AS org name",
+      "example": "cloudflare",
+      "default": null
+    },
+    "source": {
+      "multi": true,
+      "values": "source names from the proxypool sources list",
+      "example": "proxifly,hookzof",
+      "default": "all"
+    },
+    "ip_version": {
+      "values": [
+        "ipv4",
+        "ipv6"
+      ],
+      "default": "all"
+    },
+    "ip_type": {
+      "multi": true,
+      "values": [
+        "hosting",
+        "business",
+        "isp",
+        "education_research",
+        "government_admin",
+        "unknown"
+      ],
+      "default": "all"
+    },
+    "https": {
+      "values": [
+        "true",
+        "false"
+      ],
+      "default": "both",
+      "description": "whether the proxy supports tls tunneling"
+    },
+    "min_reliability": {
+      "values": "0..1",
+      "default": null,
+      "description": "lifetime check success rate"
+    },
+    "min_quality": {
+      "values": "0..1",
+      "default": null,
+      "description": "composite quality score from proxypool history"
+    },
+    "response_min": {
+      "values": "ms integer",
+      "default": null
+    },
+    "response_max": {
+      "values": "ms integer",
+      "default": null
+    },
+    "first_seen_after": {
+      "values": "ISO 8601 datetime",
+      "example": "2026-08-30T00:00:00Z",
+      "default": null
+    },
+    "last_seen_after": {
+      "values": "ISO 8601 datetime",
+      "default": null
+    },
     "sort": {
-      "values": ["response", "reliability", "quality", "first_seen", "last_seen", "port", "country", "asn", "random"],
+      "values": [
+        "response",
+        "reliability",
+        "quality",
+        "first_seen",
+        "last_seen",
+        "port",
+        "country",
+        "asn",
+        "random"
+      ],
       "default": "response"
     },
     "order": {
-      "values": ["asc", "desc"],
+      "values": [
+        "asc",
+        "desc"
+      ],
       "default": "asc for response, desc for everything else"
     },
-    "limit": { "values": "integer, 0 = no limit", "default": 0, "max": 1000000 },
+    "limit": {
+      "values": "integer, 0 = no limit",
+      "default": 0,
+      "max": 1000000
+    },
     "format": {
-      "values": ["txt", "json", "jsonl", "csv"],
+      "values": [
+        "txt",
+        "json",
+        "jsonl",
+        "csv"
+      ],
       "default": "txt"
     }
   },
@@ -152,7 +266,7 @@
   "errors": {
     "behavior": "errors render in the requested format with the correct http status",
     "codes": {
-      "400": "bad_request — unknown param, invalid value, impossible range",
+      "400": "bad_request \u2014 unknown param, invalid value, impossible range",
       "404": "unknown path",
       "405": "method_not_allowed",
       "500": "internal_error",
@@ -178,7 +292,194 @@
     "X-Cache": "HIT | MISS",
     "X-Proxy-Count": "number of records returned",
     "X-Data-Age": "seconds since the dataset was fetched from upstream",
-    "Cache-Control": "public, max-age=300, stale-while-revalidate=60"
+    "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+    "X-UA-Count": "number of ua records returned"
   },
-  "source": "https://github.com/M1noa/proxypool"
+  "source": "https://github.com/M1noa/proxypool",
+  "uas_endpoint": {
+    "path": "/uas",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "cache": "responses cached 300s at the edge (stale-while-revalidate=60); data refreshes hourly upstream",
+    "notes": [
+      "bare /uas with no query params returns the full upstream useragents.json untouched",
+      "multi-value params accept repetition (?browser=a&browser=b) or commas (?browser=a,b)",
+      "'any' or 'all' as a value clears that filter",
+      "version pins browser major numbers (?version=154)",
+      "unknown params and invalid values return 400 in the requested format",
+      "sort=random is never cached"
+    ]
+  },
+  "ua_stats_endpoint": {
+    "path": "/ua-stats",
+    "methods": [
+      "GET"
+    ],
+    "cache": "cached 300s at the edge, same dataset as /uas",
+    "response": {
+      "total": "int",
+      "top_browser": "string",
+      "top_os": "string",
+      "generated_at": "ISO 8601 of the generator run"
+    },
+    "notes": [
+      "backs the badges on the agents page; not part of the filter api"
+    ]
+  },
+  "ua_shortcuts": {
+    "pattern": "/ua-<name>.<ext>",
+    "extensions": [
+      "txt",
+      "json",
+      "jsonl",
+      "csv"
+    ],
+    "notes": [
+      "a shortcut pins one filter dimension; every other param still works as a query string (/ua-chrome.txt?os=windows&limit=50)",
+      "if the same filter appears in both the path and the query, the path wins",
+      "a shortcut and the equivalent /uas?... url share one cache entry"
+    ],
+    "names": {
+      "ua-all": "no filter",
+      "ua-chrome": "browser=chrome",
+      "ua-firefox": "browser=firefox",
+      "ua-safari": "browser=safari",
+      "ua-edge": "browser=edge",
+      "ua-opera": "browser=opera",
+      "ua-samsung": "browser=samsung",
+      "ua-windows": "os=windows",
+      "ua-macos": "os=macos",
+      "ua-linux": "os=linux",
+      "ua-android": "os=android",
+      "ua-ios": "os=ios",
+      "ua-desktop": "device=desktop",
+      "ua-mobile": "device=mobile",
+      "ua-tablet": "device=tablet"
+    }
+  },
+  "ua_params": {
+    "browser": {
+      "multi": true,
+      "values": [
+        "chrome",
+        "firefox",
+        "safari",
+        "edge",
+        "opera",
+        "samsung",
+        "vivaldi",
+        "yandex",
+        "ie"
+      ],
+      "default": "all"
+    },
+    "os": {
+      "multi": true,
+      "values": [
+        "windows",
+        "macos",
+        "linux",
+        "android",
+        "ios",
+        "chromeos"
+      ],
+      "default": "all"
+    },
+    "device": {
+      "multi": true,
+      "values": [
+        "desktop",
+        "mobile",
+        "tablet"
+      ],
+      "default": "all"
+    },
+    "version": {
+      "multi": true,
+      "values": "browser major numbers",
+      "example": "154,155",
+      "default": "all"
+    },
+    "min_share": {
+      "values": "0..1",
+      "default": null,
+      "description": "usage share weight floor"
+    },
+    "max_share": {
+      "values": "0..1",
+      "default": null
+    },
+    "sort": {
+      "values": [
+        "share",
+        "browser",
+        "version",
+        "os",
+        "device",
+        "random"
+      ],
+      "default": "share"
+    },
+    "order": {
+      "values": [
+        "asc",
+        "desc"
+      ],
+      "default": "desc for share, asc for everything else"
+    },
+    "limit": {
+      "values": "integer, 0 = no limit",
+      "default": 0,
+      "max": 1000000
+    },
+    "format": {
+      "values": [
+        "txt",
+        "json",
+        "jsonl",
+        "csv"
+      ],
+      "default": "txt"
+    }
+  },
+  "ua_formats": {
+    "txt": {
+      "content_type": "text/plain; charset=utf-8",
+      "rule": "one bare user agent string per line"
+    },
+    "json": {
+      "content_type": "application/json; charset=utf-8",
+      "rule": "array of full ua records with every field from useragents.json"
+    },
+    "jsonl": {
+      "content_type": "application/x-ndjson; charset=utf-8",
+      "rule": "one full record per line"
+    },
+    "csv": {
+      "content_type": "text/csv; charset=utf-8",
+      "rule": "header row + all fields. RFC 4180 quoting."
+    }
+  },
+  "ua_record_fields": {
+    "ua": "string, the full user agent",
+    "browser": "chrome | firefox | safari | edge | opera | samsung | vivaldi | yandex | ie",
+    "browser_version": "string, full build e.g. 154.0.8037.21",
+    "os": "windows | macos | linux | android | ios | chromeos",
+    "os_version": "string, e.g. 10, 15.7, 18.7.8",
+    "device": "desktop | mobile | tablet",
+    "share": "0..1 usage weight, sums to 1 across the file",
+    "version_release_date": "ISO date the browser version shipped",
+    "generated_at": "ISO 8601 of the generator run",
+    "template_source": "string, where the template came from"
+  },
+  "ua_examples": [
+    "https://proxies.minoa.cat/uas",
+    "https://proxies.minoa.cat/ua-chrome.txt",
+    "https://proxies.minoa.cat/uas?browser=firefox&os=windows&format=json&limit=20",
+    "https://proxies.minoa.cat/ua-mobile.json?browser=safari&limit=10",
+    "https://proxies.minoa.cat/uas?device=desktop&min_share=0.01&format=csv"
+  ],
+  "ua_source": "regenerated hourly by the proxypool uagen step from live browser version apis and statcounter shares"
 }

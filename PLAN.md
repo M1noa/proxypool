@@ -8,13 +8,18 @@ single cloudflare worker with static assets (`public/`). no frameworks, no build
 beyond `wrangler deploy`. typescript, strict, no `any`.
 
 ```
-GET /            static url-generator ui (works without js)
-GET /list        the api. filters -> sort -> limit -> render
+GET /            static proxy url-generator ui (works without js)
+GET /useragents.html static ua url-generator ui (works without js)
+GET /list        the proxy api. filters -> sort -> limit -> render
                  bare /list with no params returns the full upstream
                  proxies.json untouched (application/json)
-GET /<name>.<ext>  shortcut routes, e.g. /socks5.txt, /elite.json, /edu.csv
+GET /<name>.<ext>  proxy shortcut routes, e.g. /socks5.txt, /elite.json, /edu.csv
+GET /uas         the user-agent api. same shape, over useragents.json
+                 bare /uas returns the full upstream file untouched
+GET /ua-<name>.<ext>  ua shortcut routes, e.g. /ua-chrome.txt, /ua-mobile.json
+GET /stats /ua-stats  badge summaries for the two datasets
 GET /docs.json   machine-readable api spec (static asset)
-/style.css /script.js /noise.png   static assets
+/style.css /script.js /useragents.js /noise.png   static assets
 unknown paths    404.html for browsers, one plain-text line for scripts
 ```
 
@@ -22,6 +27,12 @@ unknown paths    404.html for browsers, one plain-text line for scripts
 
 upstream: `https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json`
 (orphan `output` branch, force-pushed hourly by github actions).
+uas upstream: `.../output/useragents.json`, regenerated hourly by the
+proxypool `uagen` step from live browser version apis (chrome-for-testing,
+chromiumdash, mozilla product-details, edge update api, apple gdmf, mdn
+browser-compat-data), whatismybrowser templates, and statcounter share
+weights. record: ua, browser, browser_version, os, os_version, device,
+share (sums to 1), version_release_date, generated_at, template_source.
 
 record shape (json array):
 
