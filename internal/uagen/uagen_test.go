@@ -36,8 +36,12 @@ func fixture(t *testing.T) {
 	mux.HandleFunc("/edge", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`[{"Product":"Stable","Releases":[{"Platform":"Windows","ProductVersion":"153.0.4234.32"}]}]`))
 	})
-	mux.HandleFunc("/pmv", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"PublicAssetSets":{"iOS":[{"ProductVersion":"18.7.8","PostingDate":"2026-09-14"}],"macOS":[{"ProductVersion":"15.7.9","PostingDate":"2026-09-14"}]}}`))
+	mux.HandleFunc("/eol/", func(w http.ResponseWriter, r *http.Request) {
+		body := `[{"cycle":"27","latest":"27","eol":false}]`
+		if strings.Contains(r.URL.Path, "macos") {
+			body = `[{"cycle":"27","latest":"27","eol":false},{"cycle":"15","latest":"15.8","eol":false}]`
+		}
+		w.Write([]byte(body))
 	})
 	mux.HandleFunc("/mdn/", func(w http.ResponseWriter, r *http.Request) {
 		key := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/mdn/"), ".json")
@@ -64,13 +68,21 @@ func fixture(t *testing.T) {
 		case strings.Contains(p, "os-market"):
 			rows = `<th>Windows</th><td><span class="count">62.67</span></td>` +
 				`<th>Android</th><td><span class="count">40.00</span></td>`
+		case strings.Contains(p, "browser-market"):
+			rows = `<th>Chrome</th><td><span class="count">73.28</span></td>` +
+				`<th>Edge</th><td><span class="count">10.46</span></td>` +
+				`<th>Firefox</th><td><span class="count">5.31</span></td>`
 		case strings.Contains(p, "mobile"):
 			rows = `<th>Chrome for Android</th><td><span class="count">60.29</span></td>`
 		}
 		w.Write([]byte(`<table class="stats-snapshot"><tbody><tr>` + rows + `</tr></tbody></table>`))
 	})
 	mux.HandleFunc("/wimb/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<span class="code">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36</span>`))
+		// current chrome plus three stale decoys: old chrome, win7 ie, old opera
+		w.Write([]byte(`<span class="code">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36</span>` +
+			`<span class="code">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36</span>` +
+			`<span class="code">Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)</span>` +
+			`<span class="code">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 OPR/76.2.4027.73374</span>`))
 	})
 	mux.HandleFunc("/corpus.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("test_cases:\n  - user_agent_string: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'\n    family: 'Chrome'\n    major: '154'\n"))
@@ -81,7 +93,7 @@ func fixture(t *testing.T) {
 	epFirefox = s.URL + "/firefox.json"
 	epFirefoxMob = s.URL + "/mobile.json"
 	epEdge = s.URL + "/edge"
-	epApple = s.URL + "/pmv"
+	epEOL = s.URL + "/eol/"
 	epMDN = s.URL + "/mdn/"
 	epStatcounter = s.URL + "/sc"
 	epWimb = s.URL + "/wimb/"
@@ -133,11 +145,43 @@ func TestVersionsFixture(t *testing.T) {
 	if v.firefox != "155.0.1" || v.firefoxESR != "140.15.0" {
 		t.Errorf("firefox = %q esr = %q", v.firefox, v.firefoxESR)
 	}
-	if v.iosLatest != "18.7.8" || v.macosLatest != "15.7.9" {
+	if v.iosLatest != "27" || v.macosLatest != "27" {
 		t.Errorf("ios = %q macos = %q", v.iosLatest, v.macosLatest)
 	}
 	if v.safariVer != "27" {
 		t.Errorf("safari = %q", v.safariVer)
+	}
+}
+
+func TestStaleGate(t *testing.T) {
+	fixture(t)
+	recs, warnings := Generate(context.Background(), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC))
+	if len(warnings) > 0 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	for _, r := range recs {
+		// stale decoys from the wimb fixture must not survive: chrome 120
+		// (>2 behind 154), win 6.1 ie, opera 76 (>2 behind 135)
+		if r.Browser == "ie" {
+			t.Errorf("ie record survived: %q", r.UA)
+		}
+		if r.Browser == "chrome" && majorOf(r.BrowserVersion) < 152 {
+			t.Errorf("stale chrome survived: %q", r.UA)
+		}
+		if r.Browser == "opera" && majorOf(r.BrowserVersion) < 133 {
+			t.Errorf("stale opera survived: %q", r.UA)
+		}
+		if strings.Contains(r.UA, "Windows NT 6.") {
+			t.Errorf("win6 record survived: %q", r.UA)
+		}
+	}
+	// canonical chrome matches the family weight, not epsilon
+	for _, r := range recs {
+		if r.TemplateSource == "canonical" && r.Browser == "chrome" && r.OS == "windows" {
+			if r.Share < 0.01 {
+				t.Errorf("canonical chrome share = %f, want family weight", r.Share)
+			}
+		}
 	}
 }
 

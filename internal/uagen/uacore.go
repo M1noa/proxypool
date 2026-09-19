@@ -26,7 +26,7 @@ func (f *fetcher) uacore(ctx context.Context, v versions) []wimbUA {
 		"Mobile Safari": majorOf(v.safariVer),
 		"Safari":        majorOf(v.safariVer),
 		"Edge":          majorOf(edgeNewest(v.edgeStable)),
-		"Opera":         135, // no version api; validated against wimb at runtime
+		"Opera":         majorOf(mdnVer(v, "opera")),
 	}
 	var out []wimbUA
 	seen := map[string]bool{}

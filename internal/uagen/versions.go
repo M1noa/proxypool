@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,30 +176,57 @@ func (f *fetcher) edge(ctx context.Context, v *versions) {
 	}
 }
 
-// apple: latest ios/macos product versions from gdmf. entries carry
-// posting dates; the newest posted version per os family wins.
+// apple: latest supported ios/macos from endoflife.date. gdmf's cert chain
+// fails verification on the ci runners (x509 unknown authority), so every
+// run warned and skipped apple input. eol serves plain json per product:
+// [{cycle, latest, eol}]; newest non-eol cycle with a latest wins.
 func (f *fetcher) apple(ctx context.Context, v *versions) {
-	var gdmf struct {
-		PublicAssetSets map[string][]struct {
-			ProductVersion string `json:"ProductVersion"`
-			PostingDate    string `json:"PostingDate"`
-		} `json:"PublicAssetSets"`
+	type cycle struct {
+		Cycle  string `json:"cycle"`
+		Latest string `json:"latest"`
+		EOL    any    `json:"eol"`
 	}
-	if !f.getJSON(ctx, "apple-gdmf", epApple, &gdmf) {
-		return
-	}
-	newest := map[string]string{}
-	newestDate := map[string]string{}
-	for family, sets := range gdmf.PublicAssetSets {
-		for _, s := range sets {
-			if s.PostingDate > newestDate[family] {
-				newestDate[family] = s.PostingDate
-				newest[family] = s.ProductVersion
+	pick := func(name string) string {
+		var cycles []cycle
+		if !f.getJSON(ctx, "eol/"+name, epEOL+name+".json", &cycles) {
+			return ""
+		}
+		best := ""
+		for _, c := range cycles {
+			// eol is false while supported, a date string once dropped
+			if c.Latest == "" || c.EOL != false {
+				continue
+			}
+			if best == "" || compareVer(c.Latest, best) > 0 {
+				best = c.Latest
 			}
 		}
+		return best
 	}
-	v.iosLatest = newest["iOS"]
-	v.macosLatest = newest["macOS"]
+	v.iosLatest = pick("ios")
+	v.macosLatest = pick("macos")
+}
+
+// compareVer orders dotted numeric versions: 27 > 26.7, 15.8 > 15.7.
+func compareVer(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		ai, _ := strconv.Atoi(as[i])
+		bi, _ := strconv.Atoi(bs[i])
+		if ai != bi {
+			if ai > bi {
+				return 1
+			}
+			return -1
+		}
+	}
+	switch {
+	case len(as) > len(bs):
+		return 1
+	case len(as) < len(bs):
+		return -1
+	}
+	return 0
 }
 
 // mdn: current release per browser file — version, date, engine mapping.

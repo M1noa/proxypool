@@ -3,7 +3,7 @@
 // apis and usage-share tables.
 //
 // inputs: chrome-for-testing + chromiumdash (chrome builds), mozilla
-// product-details (firefox), edge update api, apple gdmf (ios/macos),
+// product-details (firefox), edge update api, endoflife.date (ios/macos),
 // mdn browser-compat-data (release dates, safari<->webkit mapping),
 // whatismybrowser guides (ground-truth templates), statcounter (share
 // weights), uap-core test corpus (extra seeds).
