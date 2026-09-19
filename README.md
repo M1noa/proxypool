@@ -9,6 +9,8 @@ hourly refreshed proxy lists. fetched from public sources, and checked...
 |---|---|
 | [proxies.json](https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json) | all live proxies, sorted by response time: protocols, country, anonymity, sources |
 | [proxies.minoa.cat](https://proxies.minoa.cat) | api that can filter and return proxies in any format (eg http.txt) |
+| [useragents.json](https://raw.githubusercontent.com/M1noa/proxypool/output/useragents.json) | weighted current user agent strings with usage shares |
+| [proxies.minoa.cat/useragents.html](https://proxies.minoa.cat/useragents.html) | api that can filter and return user agents in any format (eg ua-chrome.txt) |
 
 sources configurable in [`sources.jsonc`](sources.jsonc). country + asn data from [db-ip lite](https://db-ip.com); `ip_type` (hosting/residential) from [ipverse/as-metadata](https://github.com/ipverse/as-metadata) (cc0).
 
