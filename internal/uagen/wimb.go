@@ -36,6 +36,8 @@ var (
 	reMacOS   = regexp.MustCompile(`Mac OS X (\d+[_.]\d+(?:[_.]\d+)?)`)
 	reAndroid = regexp.MustCompile(`Android ([\d.]+)`)
 	reIOS     = regexp.MustCompile(`iPhone OS (\d+[_.]\d+(?:[_.]\d+)?)`)
+	// wimb typo variant seen in the wild: "CPU iPhone 18_7_8" (missing OS)
+	reIPhone  = regexp.MustCompile(`CPU iPhone (\d+[_.]\d+(?:[_.]\d+)?)`)
 	reCPUOS   = regexp.MustCompile(`CPU OS (\d+[_.]\d+(?:[_.]\d+)?)`)
 	reLinux   = regexp.MustCompile(`Linux| X11;`)
 )
@@ -112,7 +114,7 @@ func parseWimbUA(ua, slug string) (wimbUA, bool) {
 		w.os, w.osVer, w.device = "android", firstGroup(reAndroid, ua), "mobile"
 	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") || strings.Contains(ua, "iPod"):
 		w.os, w.device = "ios", "mobile"
-		w.osVer = underscore(firstOf(firstGroup(reIOS, ua), firstGroup(reCPUOS, ua)))
+		w.osVer = underscore(firstOf(firstOf(firstGroup(reIOS, ua), firstGroup(reCPUOS, ua)), firstGroup(reIPhone, ua)))
 	case strings.Contains(ua, "Linux") || strings.Contains(ua, "X11"):
 		w.os, w.device = "linux", "desktop"
 		w.osVer = ""
