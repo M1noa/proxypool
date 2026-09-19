@@ -131,8 +131,17 @@ jobs:
             "https://raw.githubusercontent.com/${{ github.repository }}/output/history.duckdb" \
             || echo "no prior history, starting fresh"
 
+      - name: restore egress list
+        # last run's proxies, used only as fetch egress (retries go through
+        # them). kept at egress.json so the pipeline's carry-over, which reads
+        # output/proxies.json, stays off in ci.
+        run: |
+          curl -fsSL --remove-on-error -o output/egress.json \
+            "https://raw.githubusercontent.com/${{ github.repository }}/output/proxies.json" \
+            || echo "no prior proxies, fetching direct"
+
       - name: fetch, check, write outputs
-        run: ./bin/proxypool
+        run: ./bin/proxypool -egress output/egress.json
 
       - name: commit readme
         run: |
@@ -151,11 +160,11 @@ jobs:
         # orphan temp repo force-pushed every run: output branch always has 1 commit
         run: |
           work=$(mktemp -d)
-          cp output/proxies.json output/history.duckdb "$work/"
+          cp output/proxies.json output/history.duckdb output/useragents.json "$work/"
           git -C "$work" init -q
           git -C "$work" config user.name "github-actions[bot]"
           git -C "$work" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$work" add proxies.json history.duckdb
+          git -C "$work" add proxies.json history.duckdb useragents.json
           git -C "$work" commit -qm "outputs $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git -C "$work" remote add origin \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"

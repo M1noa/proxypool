@@ -63,13 +63,15 @@ func newRunner(fl *fetch.Flow) *runner {
 	if fl.Src.Timeout != nil {
 		lim = time.Duration(*fl.Src.Timeout) * time.Second
 	}
+	c := httpx.New(fl.Src, lim)
+	c.Egress = fl.Egress
 	return &runner{
 		src:      fl.Src,
 		deadline: fl.Deadline,
 		st:       fl.State,
 		// the client's socket timeouts are fixed at construction, so they are
 		// built at the largest value the per-request clamp can return
-		c:   httpx.New(fl.Src, lim),
+		c:   c,
 		max: lim,
 	}
 }

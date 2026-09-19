@@ -35,6 +35,8 @@ func main() {
 		err = runProbe(ctx, argv)
 	case "test-source":
 		err = runTestSource(ctx, argv)
+	case "uagen":
+		err = runUagen(ctx, argv)
 	case "geoip":
 		err = runGeoIP(ctx, argv)
 	case "help":
@@ -55,6 +57,7 @@ func usage() {
   proxypool [flags]                              run the full pipeline
   proxypool probe [-workers N] [-json]           per-source reachability report
   proxypool test-source <name> [-show N] [-list] fetch one source, print samples
+  proxypool uagen [-out DIR]                     regenerate output/useragents.json
   proxypool geoip [-cache DIR]                   warm the mmdb and asn caches
 
 run "proxypool -h" for the pipeline flags.
@@ -72,12 +75,14 @@ func runPipeline(ctx context.Context, argv []string) error {
 	fs.BoolVar(&o.SkipASN, "skip-asn", false, "no asn / as_org / ip_type lookup")
 	fs.BoolVar(&o.SkipHistory, "skip-history", false, "no duckdb read/write, no scoring or skip-selection")
 	fs.BoolVar(&o.SkipReadme, "skip-readme", false, "leave README.md alone")
+	fs.BoolVar(&o.SkipUagen, "skip-uagen", false, "skip useragents.json regeneration")
 
 	sources := fs.String("sources", "", "only these source names (comma separated)")
 	exclude := fs.String("exclude", "", "drop these source names (comma separated)")
 	formats := fs.String("format", "", "only sources with these formats (comma separated)")
 
 	fs.IntVar(&o.Limit, "limit", 0, "cap records fed to the checker")
+	fs.StringVar(&o.EgressPath, "egress", "", "proxies.json to deal egress proxies from (default <out>/proxies.json)")
 	fs.IntVar(&o.Concurrency, "concurrency", 0, "override derived checker concurrency")
 	fs.DurationVar(&o.Timeout, "timeout", 0, "per-probe timeout (0 uses 6.5s)")
 	fs.DurationVar(&o.Budget, "budget", 0, "wall-clock budget (0 uses 1h57m)")

@@ -100,6 +100,7 @@ type Flow struct {
 	Src      *config.Source
 	Deadline time.Time
 	State    *State
+	Egress   httpx.Egress
 }
 
 // Fetcher holds what fetch_source takes as arguments.
@@ -112,6 +113,8 @@ type Fetcher struct {
 	// Flows dispatches the hand-written sources. injected rather than imported
 	// so internal/flows can depend on this package's State.
 	Flows map[string]FlowFunc
+	// Egress carries retry attempts through pool proxies. nil fetches direct.
+	Egress httpx.Egress
 }
 
 func (f *Fetcher) maxPages() int {
@@ -141,10 +144,11 @@ func (f *Fetcher) Source(ctx context.Context, src *config.Source, st *State) ([]
 			return nil, []string{fmt.Sprintf("%s: flow '%s' failed: not registered",
 				src.Name, src.Flow)}
 		}
-		return fn(ctx, &Flow{Src: src, Deadline: deadline, State: st})
+		return fn(ctx, &Flow{Src: src, Deadline: deadline, State: st, Egress: f.Egress})
 	}
 
 	client := httpx.New(src, timeout)
+	client.Egress = f.Egress
 	defer client.CloseIdle()
 
 	// multi-entry sources are [{url, set{field: const}}, …]. copied because

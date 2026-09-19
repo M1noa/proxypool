@@ -82,7 +82,15 @@ func (c *Client) Do(ctx context.Context, r Req) (string, error) {
 		if !r.Deadline.IsZero() && time.Now().After(r.Deadline) {
 			return "", ErrBudget
 		}
-		text, resp, err := c.once(ctx, method, r, body, contentType)
+		// attempt 1 goes direct. a retry takes the next egress proxy, so a
+		// host rate limiting our ip (429) gets a fresh one per attempt.
+		hc := c.hc
+		if attempt > 1 && c.Egress != nil {
+			if u := c.Egress.Next(); u != nil {
+				hc = c.forProxy(u)
+			}
+		}
+		text, resp, err := c.once(ctx, hc, method, r, body, contentType)
 		if err != nil {
 			lastErr = err
 			if ctx.Err() != nil {
@@ -114,9 +122,9 @@ func (c *Client) Do(ctx context.Context, r Req) (string, error) {
 	return "", lastErr
 }
 
-// once performs a single attempt, always draining and closing the body so the
-// connection returns to the pool.
-func (c *Client) once(ctx context.Context, method string, r Req, body []byte,
+// once performs a single attempt on hc, always draining and closing the body
+// so the connection returns to the pool.
+func (c *Client) once(ctx context.Context, hc *http.Client, method string, r Req, body []byte,
 	contentType string) (string, *http.Response, error) {
 
 	// the deadline check in Do only runs between attempts, so without this a
@@ -153,7 +161,7 @@ func (c *Client) once(ctx context.Context, method string, r Req, body []byte,
 	for k, v := range r.Headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := c.hc.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return "", nil, err
 	}

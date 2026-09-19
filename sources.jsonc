@@ -365,6 +365,7 @@
       "name": "proxydb",
       "url": "https://proxydb.net/?offset={offset}",
       "format": "html",
+      "budget_s": 300,
       "pagination": {
         "type": "offset",
         "start": 0,
@@ -1360,26 +1361,29 @@
         "protocols"
       ]
     },
-    {
-      "name": "proxydocker",
-      "url": "https://www.proxydocker.com/en/proxylist/",
-      "format": "html",
-      "extract": {
-        "row_selector": "table.plist tr",
-        "ip": "td:nth-child(1)",
-        "protocol": "td:nth-child(2)",
-        "anonymity": "td:nth-child(3)",
-        "country": {
-          "selector": "td:nth-child(6)",
-          "regex": "^([A-Z]{2})"
-        }
-      },
-      "includes": [
-        "anonymity",
-        "protocols",
-        "country"
-      ]
-    },
+    // proxydocker disabled: www.proxydocker.com/en/proxylist/ now serves a
+    // captcha check ("i am not a robot" button, 200 with no table) to plain
+    // http clients. dead end without a js-capable browser.
+    // {
+    //   "name": "proxydocker",
+    //   "url": "https://www.proxydocker.com/en/proxylist/",
+    //   "format": "html",
+    //   "extract": {
+    //     "row_selector": "table.plist tr",
+    //     "ip": "td:nth-child(1)",
+    //     "protocol": "td:nth-child(2)",
+    //     "anonymity": "td:nth-child(3)",
+    //     "country": {
+    //       "selector": "td:nth-child(6)",
+    //       "regex": "^([A-Z]{2})"
+    //     }
+    //   },
+    //   "includes": [
+    //     "anonymity",
+    //     "protocols",
+    //     "country"
+    //   ]
+    // },
     {
       "name": "charlespikachu",
       "display": "CharlesPikachu/freeproxy",
@@ -2051,15 +2055,14 @@
       "flow": "proxyhub"
     },
     {
+      // space-separated ip port, no protocol column: checker probes http+https
       "name": "6kmfi6hp-all",
       "url": "https://raw.githubusercontent.com/6Kmfi6HP/proxy_files/refs/heads/main/proxies.txt",
       "format": "text",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3})\\s+(?P<port>\\d{2,5})\\s*$"
       },
-      "includes": [
-        "protocols"
-      ]
+      "includes": []
     },
     {
       "name": "arteffkod-all",
@@ -2072,37 +2075,39 @@
         "protocols"
       ]
     },
-    {
-      "name": "breakingtechfr-http",
-      "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/http.txt",
-      "format": "text",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": [
-        "protocols"
-      ]
-    },
-    {
-      "name": "breakingtechfr-socks4",
-      "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "breakingtechfr-socks5",
-      "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // breakingtechfr-* disabled: BreakingTechFr/Proxy_Free deleted
+    // (user account gone, all three urls 404 since ~2026-09).
+    // {
+    //   "name": "breakingtechfr-http",
+    //   "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/http.txt",
+    //   "format": "text",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": [
+    //     "protocols"
+    //   ]
+    // },
+    // {
+    //   "name": "breakingtechfr-socks4",
+    //   "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/socks4.txt",
+    //   "format": "text",
+    //   "protocol": "socks4",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "breakingtechfr-socks5",
+    //   "url": "https://raw.githubusercontent.com/BreakingTechFr/Proxy_Free/refs/heads/main/proxies/socks5.txt",
+    //   "format": "text",
+    //   "protocol": "socks5",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "casa-ls-http",
       "url": "https://raw.githubusercontent.com/casa-ls/proxy-list/refs/heads/main/http",
@@ -2185,26 +2190,29 @@
         "protocols"
       ]
     },
-    {
-      "name": "fahimscirex-http",
-      "url": "https://raw.githubusercontent.com/fahimscirex/proxybd/refs/heads/master/proxylist/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "fahimscirex-socks4",
-      "url": "https://raw.githubusercontent.com/fahimscirex/proxybd/refs/heads/master/proxylist/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // fahimscirex-* disabled: fahimscirex/proxybd restructured into a
+    // bangladesh-only filter over monosans (src/scraper.sh, no proxylist/
+    // files on master). redundant with monosans-http/socks4/socks5 anyway.
+    // {
+    //   "name": "fahimscirex-http",
+    //   "url": "https://raw.githubusercontent.com/fahimscirex/proxybd/refs/heads/master/proxylist/http.txt",
+    //   "format": "text",
+    //   "protocol": "http",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "fahimscirex-socks4",
+    //   "url": "https://raw.githubusercontent.com/fahimscirex/proxybd/refs/heads/master/proxylist/socks4.txt",
+    //   "format": "text",
+    //   "protocol": "socks4",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "fifzzsenze-http",
       "url": "https://raw.githubusercontent.com/FifzzSENZE/Master-Proxy/master/proxies/http.txt",
@@ -2256,16 +2264,18 @@
         "protocols"
       ]
     },
-    {
-      "name": "im-razvan-https",
-      "url": "https://raw.githubusercontent.com/im-razvan/proxy_list/main/https.txt",
-      "format": "text",
-      "protocol": "https",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // im-razvan-https disabled: im-razvan/proxy_list dropped https.txt
+    // (repo now carries http.txt + socks5.txt only, https.txt 404s).
+    // {
+    //   "name": "im-razvan-https",
+    //   "url": "https://raw.githubusercontent.com/im-razvan/proxy_list/main/https.txt",
+    //   "format": "text",
+    //   "protocol": "https",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "im-razvan-socks5",
       "url": "https://raw.githubusercontent.com/im-razvan/proxy_list/main/socks5.txt",
@@ -2276,36 +2286,38 @@
       },
       "includes": []
     },
-    {
-      "name": "iniridwanul-http",
-      "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "iniridwanul-socks4",
-      "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "iniridwanul-socks5",
-      "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // iniridwanul-* disabled: iniridwanul/Hoot deleted (user account gone,
+    // all three urls 404 since ~2026-09).
+    // {
+    //   "name": "iniridwanul-http",
+    //   "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/http.txt",
+    //   "format": "text",
+    //   "protocol": "http",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "iniridwanul-socks4",
+    //   "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/socks4.txt",
+    //   "format": "text",
+    //   "protocol": "socks4",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "iniridwanul-socks5",
+    //   "url": "https://raw.githubusercontent.com/iniridwanul/Hoot/refs/heads/master/proxylist/socks5.txt",
+    //   "format": "text",
+    //   "protocol": "socks5",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "javadbazokar-http",
       "url": "https://raw.githubusercontent.com/javadbazokar/PROXY-List/main/http.txt",
@@ -2377,17 +2389,19 @@
         "protocols"
       ]
     },
-    {
-      "name": "mmpx12-all",
-      "url": "https://raw.githubusercontent.com/mmpx12/proxy-list/master/proxies.txt",
-      "format": "text",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": [
-        "protocols"
-      ]
-    },
+    // mmpx12-all disabled: mmpx12/proxy-list deleted (user account gone,
+    // url 404s since ~2026-09).
+    // {
+    //   "name": "mmpx12-all",
+    //   "url": "https://raw.githubusercontent.com/mmpx12/proxy-list/master/proxies.txt",
+    //   "format": "text",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": [
+    //     "protocols"
+    //   ]
+    // },
     {
       "name": "murongpig-http",
       "url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",
@@ -2551,57 +2565,62 @@
       },
       "includes": []
     },
-    {
-      "name": "variableninja-http",
-      "url": "https://raw.githubusercontent.com/variableninja/proxyscraper/refs/heads/main/proxies/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "variableninja-socks",
-      "url": "https://raw.githubusercontent.com/variableninja/proxyscraper/refs/heads/main/proxies/socks.txt",
-      "format": "text",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": [
-        "protocols"
-      ]
-    },
-    {
-      "name": "yemixzy-http",
-      "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "yemixzy-socks4",
-      "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "yemixzy-socks5",
-      "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // variableninja-* disabled: variableninja/proxyscraper is now a go
+    // scraper that writes http.txt/socks.txt locally on release, no
+    // proxies/*.txt published in the repo (both urls 404).
+    // {
+    //   "name": "variableninja-http",
+    //   "url": "https://raw.githubusercontent.com/variableninja/proxyscraper/refs/heads/main/proxies/http.txt",
+    //   "format": "text",
+    //   "protocol": "http",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "variableninja-socks",
+    //   "url": "https://raw.githubusercontent.com/variableninja/proxyscraper/refs/heads/main/proxies/socks.txt",
+    //   "format": "text",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": [
+    //     "protocols"
+    //   ]
+    // },
+    // yemixzy-* disabled: yemixzy/proxy-list deleted (user emptied their
+    // account, all three urls 404 since ~2026-09).
+    // {
+    //   "name": "yemixzy-http",
+    //   "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/http.txt",
+    //   "format": "text",
+    //   "protocol": "http",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "yemixzy-socks4",
+    //   "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks4.txt",
+    //   "format": "text",
+    //   "protocol": "socks4",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "yemixzy-socks5",
+    //   "url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks5.txt",
+    //   "format": "text",
+    //   "protocol": "socks5",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "zebbern-http",
       "url": "https://raw.githubusercontent.com/zebbern/Proxy-Scraper/main/http.txt",
@@ -2642,36 +2661,38 @@
       },
       "includes": []
     },
-    {
-      "name": "zenjahid-http",
-      "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/http.txt",
-      "format": "text",
-      "protocol": "http",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "zenjahid-socks4",
-      "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/socks4.txt",
-      "format": "text",
-      "protocol": "socks4",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
-    {
-      "name": "zenjahid-socks5",
-      "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/socks5.txt",
-      "format": "text",
-      "protocol": "socks5",
-      "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
-      },
-      "includes": []
-    },
+    // zenjahid-* disabled: zenjahid/FreeProxy4u deleted (repo gone,
+    // all three urls 404 since ~2026-09).
+    // {
+    //   "name": "zenjahid-http",
+    //   "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/http.txt",
+    //   "format": "text",
+    //   "protocol": "http",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "zenjahid-socks4",
+    //   "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/socks4.txt",
+    //   "format": "text",
+    //   "protocol": "socks4",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
+    // {
+    //   "name": "zenjahid-socks5",
+    //   "url": "https://raw.githubusercontent.com/zenjahid/FreeProxy4u/refs/heads/main/socks5.txt",
+    //   "format": "text",
+    //   "protocol": "socks5",
+    //   "extract": {
+    //     "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+    //   },
+    //   "includes": []
+    // },
     {
       "name": "zevtyardt-http",
       "url": "https://raw.githubusercontent.com/zevtyardt/proxy-list/main/http.txt",
@@ -2704,41 +2725,41 @@
     },
     {
       "name": "zloi-user-http",
-      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/master/http.txt",
+      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/main/http.txt",
       "format": "text",
       "protocol": "http",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:]*?))?\\s*$"
       },
       "includes": []
     },
     {
       "name": "zloi-user-https",
-      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/master/https.txt",
+      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/main/https.txt",
       "format": "text",
       "protocol": "https",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:]*?))?\\s*$"
       },
       "includes": []
     },
     {
       "name": "zloi-user-socks4",
-      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/master/socks4.txt",
+      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/main/socks4.txt",
       "format": "text",
       "protocol": "socks4",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:]*?))?\\s*$"
       },
       "includes": []
     },
     {
       "name": "zloi-user-socks5",
-      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/master/socks5.txt",
+      "url": "https://raw.githubusercontent.com/zloi-user/hideip.me/refs/heads/main/socks5.txt",
       "format": "text",
       "protocol": "socks5",
       "extract": {
-        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})(?::(?P<country>[^:]*?))?\\s*$"
       },
       "includes": []
     },
