@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -16,6 +18,12 @@ import (
 
 	"github.com/M1noa/proxypool/internal/config"
 )
+
+// Egress deals out proxy urls for retries. implemented by internal/egress;
+// an interface here so httpx does not import it.
+type Egress interface {
+	Next() *url.URL
+}
 
 // BrowserUA is the ua antibot sources get instead of proxypool/1.0.
 const BrowserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
@@ -39,6 +47,14 @@ func BrowserHeaders() map[string]string {
 type Client struct {
 	hc      *http.Client
 	headers http.Header
+	timeout time.Duration
+
+	// Egress, when non-nil, carries retry attempts (2+) through rotating
+	// pool proxies. attempt 1 always goes direct.
+	Egress Egress
+
+	mu      sync.Mutex
+	proxied map[string]*http.Client
 }
 
 // New builds the client for a source. header precedence matches
@@ -65,8 +81,28 @@ func New(src *config.Source, timeout time.Duration) *Client {
 			h.Set(k, v)
 		}
 	}
-	tr := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+	// requests.Session keeps a cookie jar, and proxybros only serves its export
+	// to the session that ran the prefetch POST. without a jar that request
+	// comes back 200 with an empty body.
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	return &Client{
+		hc:      &http.Client{Transport: newTransport(timeout, nil), Jar: jar},
+		headers: h,
+		timeout: timeout,
+	}
+}
+
+// newTransport builds the session transport. proxy nil means direct (plus
+// environment); otherwise every request on it goes through that proxy.
+func newTransport(timeout time.Duration, proxy *url.URL) *http.Transport {
+	var pf func(*http.Request) (*url.URL, error)
+	if proxy == nil {
+		pf = http.ProxyFromEnvironment
+	} else {
+		pf = http.ProxyURL(proxy)
+	}
+	return &http.Transport{
+		Proxy:                 pf,
 		DialContext:           (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
@@ -78,11 +114,24 @@ func New(src *config.Source, timeout time.Duration) *Client {
 		// h2 upgrade, and urllib3 only ever speaks http/1.1. letting go
 		// negotiate h2 would change what some sources return.
 	}
-	// requests.Session keeps a cookie jar, and proxybros only serves its export
-	// to the session that ran the prefetch POST. without a jar that request
-	// comes back 200 with an empty body.
-	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	return &Client{hc: &http.Client{Transport: tr, Jar: jar}, headers: h}
+}
+
+// forProxy returns a client sharing this session's jar that sends everything
+// through u. one cached client per proxy url: connections cannot be shared
+// across proxies anyway, and the pool is small, so this stays bounded.
+func (c *Client) forProxy(u *url.URL) *http.Client {
+	key := u.String()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if hc, ok := c.proxied[key]; ok {
+		return hc
+	}
+	hc := &http.Client{Transport: newTransport(c.timeout, u), Jar: c.hc.Jar}
+	if c.proxied == nil {
+		c.proxied = map[string]*http.Client{}
+	}
+	c.proxied[key] = hc
+	return hc
 }
 
 // CloseIdle releases the client's pooled connections.

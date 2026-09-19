@@ -10,6 +10,7 @@ import (
 
 	"github.com/M1noa/proxypool/internal/check"
 	"github.com/M1noa/proxypool/internal/config"
+	"github.com/M1noa/proxypool/internal/egress"
 	"github.com/M1noa/proxypool/internal/extract"
 	"github.com/M1noa/proxypool/internal/fetch"
 	"github.com/M1noa/proxypool/internal/flows"
@@ -18,6 +19,7 @@ import (
 	"github.com/M1noa/proxypool/internal/memwatch"
 	"github.com/M1noa/proxypool/internal/output"
 	"github.com/M1noa/proxypool/internal/pyfmt"
+	"github.com/M1noa/proxypool/internal/uagen"
 )
 
 // DefaultBudget is TIME_BUDGET_S: a hard wall-clock cap on the whole run,
@@ -40,6 +42,7 @@ type Options struct {
 	SkipASN       bool
 	SkipHistory   bool
 	SkipReadme    bool
+	SkipUagen     bool // skip useragents.json regeneration
 
 	Only    []string // only these source names
 	Exclude []string // drop these source names
@@ -49,6 +52,10 @@ type Options struct {
 	Concurrency int // 0 derives from cpu, ram and bandwidth
 	Timeout     time.Duration
 	Budget      time.Duration // 0 uses DefaultBudget
+
+	// EgressPath is a previous proxies.json to deal egress proxies from.
+	// defaults to <out>/proxies.json; missing or empty means fetch direct.
+	EgressPath string
 
 	DryRun bool
 	Logf   func(format string, args ...any)
@@ -100,7 +107,17 @@ func Run(ctx context.Context, o Options) error {
 	var errs []string
 	if !o.SkipFetch {
 		t0 := time.Now()
-		pool := &fetch.Pool{F: &fetch.Fetcher{Flows: flows.Table}, Logf: logf}
+		egressPath := o.EgressPath
+		if egressPath == "" {
+			egressPath = filepath.Join(o.Out, "proxies.json")
+		}
+		eg := egress.Load(egressPath)
+		if eg == nil {
+			logf("egress: no pool (%s), fetching direct", egressPath)
+		} else {
+			logf("egress: %d proxies from %s", eg.Len(), egressPath)
+		}
+		pool := &fetch.Pool{F: &fetch.Fetcher{Flows: flows.Table, Egress: eg}, Logf: logf}
 		var stats map[string]fetch.Stat
 		raw, errs, stats = pool.Run(ctx, pointers(sources))
 		logf("")
@@ -142,6 +159,24 @@ func Run(ctx context.Context, o Options) error {
 		if items, err = checkPhase(ctx, o, items, tRun, watch); err != nil {
 			return err
 		}
+	}
+
+	// user agents regenerate every run from live version inputs, independent
+	// of the proxy fetch. best-effort: a dead version api warns and drops its
+	// families, never the run.
+	if !o.SkipUagen && !o.DryRun {
+		t0 := time.Now()
+		recs, warnings := uagen.Generate(ctx, time.Now())
+		for _, w := range warnings {
+			logf("uagen warn: %s", w)
+		}
+		if err := os.MkdirAll(o.Out, 0o755); err != nil {
+			return err
+		}
+		if err := uagen.Write(filepath.Join(o.Out, "useragents.json"), recs); err != nil {
+			return err
+		}
+		logf("uagen: %d agents in %.1fs", len(recs), time.Since(t0).Seconds())
 	}
 
 	t0 := time.Now()
