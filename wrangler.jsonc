@@ -7,7 +7,7 @@
     "directory": "./public/",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/list", "/stats", "/uas", "/ua-stats", "/*.txt", "/*.json", "/*.jsonl", "/*.csv", "!/docs.json"]
+    "run_worker_first": ["/list", "/stats", "/uas", "/ua-stats", "/*.txt", "/*.json", "/*.jsonl", "/*.csv", "!/docs.json", "!/llms.txt", "!/robots.txt", "!/.well-known/*"]
   },
   "routes": [
     { "pattern": "proxies.minoa.cat", "custom_domain": true }

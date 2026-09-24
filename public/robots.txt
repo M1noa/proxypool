@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# agent guide: https://proxies.minoa.cat/llms.txt

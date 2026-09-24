@@ -1,0 +1,88 @@
+# proxies.minoa.cat
+
+fast filtered proxy lists + user agent strings, served from cloudflare edge.
+data refreshes hourly upstream. responses cached 300s (stale-while-revalidate 60s).
+
+## docs
+
+- machine spec (full filter/format reference): https://proxies.minoa.cat/docs.json
+- interactive url builder: https://proxies.minoa.cat/
+- user agent builder: https://proxies.minoa.cat/useragents.html
+- always re-fetch /docs.json before generating urls. params change; docs.json is authoritative.
+
+## repo and data
+
+- repo: https://github.com/M1noa/proxypool
+- site + worker code lives on orphan branch `pages-cache`
+- proxy records: `output` branch, `proxies.json`
+  raw: https://raw.githubusercontent.com/M1noa/proxypool/output/proxies.json
+- user agent records: `output` branch, `useragents.json`
+  raw: https://raw.githubusercontent.com/M1noa/proxypool/output/useragents.json
+- prefer the edge api over raw github. use raw only for bulk/offline work.
+
+## endpoints
+
+- proxies: GET https://proxies.minoa.cat/list
+- user agents: GET https://proxies.minoa.cat/uas
+- stats: GET https://proxies.minoa.cat/stats and /ua-stats
+- bare /list (no query) returns upstream proxies.json untouched. same for /uas.
+- unknown params or bad values return 400 in the requested format. check status before parsing.
+
+## residential proxies (isp)
+
+residential means `ip_type=isp`. this is the closest the dataset gets to
+residential. there is no `residential` value; `ip_type=residential` is a 400.
+
+```
+/list?ip_type=isp&format=jsonl
+/isp.txt
+/list?ip_type=isp&https=true&sort=quality&format=jsonl
+/list?ip_type=isp&anonymity=elite&min_reliability=0.8&response_max=2000&sort=response&format=json
+```
+
+- shortcut `/isp.<txt|json|jsonl|csv>` pins `ip_type=isp`. other params still apply: `/isp.txt?country=us&limit=50`
+- exclude datacenter: there is no NOT operator. pull isp + business + education_research + government_admin and filter client side, or just take isp.
+- `ip_type` values: hosting, business, isp, education_research, government_admin, unknown. `unknown` means empty in the data.
+- quality matters more than type here. stack filters: `ip_type=isp&min_quality=0.7&min_reliability=0.8&response_max=2000&sort=quality`
+- verify client side: record fields `ip_type`, `as_org`, `asn`, `reliability`, `quality`, `response_time_ms`.
+
+## scraping recipes
+
+usable proxy, fastest first (default sort):
+```
+/list?type=http&anonymity=elite&min_reliability=0.8&response_max=2000&sort=response&format=txt&limit=100
+```
+
+socks5 pool:
+```
+/list?type=socks5&min_quality=0.5&sort=quality&format=txt
+/socks5.txt?country=us,de&limit=50
+```
+
+per-country residential:
+```
+/list?ip_type=isp&country=us&sort=quality&format=jsonl&limit=200
+```
+
+fresh and fast:
+```
+/list?last_seen_after=2026-09-23T00:00:00Z&response_max=1000&sort=last_seen&format=csv
+```
+
+random sample (never cached, reshuffles every call):
+```
+/list?sort=random&limit=20&format=txt
+```
+
+## filter notes
+
+- multi-value: repeat or comma: `?type=socks4&type=socks5` or `?type=socks4,socks5`. `any`/`all` clears the filter.
+- txt shape depends on type count: exactly one type selected gives bare `ip:port` lines. zero or 2+ gives `protocol://ip:port`, one line per matched protocol.
+- json/jsonl give full records (ip, port, protocols, country, anonymity, https, asn, as_org, ip_type, response_time_ms, reliability, quality, checks_total, checks_ok, sources, first_seen, last_seen, last_checked). use jsonl for streaming large pulls.
+- csv joins array fields (protocols, sources) with `;`, RFC 4180 quoting.
+- `https=true` means CONNECT support, not the proxy scheme. `type=https` is the scheme.
+- `as_org` is a case-insensitive substring: `?as_org=comcast`. `asn` takes AS numbers: `?asn=7922,3352`.
+- `min_reliability` 0..1 is lifetime check success rate. `min_quality` 0..1 is the composite score. start at 0.7/0.8 and loosen.
+- `limit=0` (default) means no limit, capped at 1000000. always set limit for scripts.
+- response headers: `X-Proxy-Count`, `X-Data-Age` (seconds since fetch), `X-Cache: HIT|MISS`.
+- user agents: `/uas?browser=chrome&os=windows&format=json&limit=20`, shortcuts `/ua-chrome.txt`, `/ua-mobile.json`. pair a desktop chrome UA with a hosting proxy, mobile safari UA with isp, for plausible combos.

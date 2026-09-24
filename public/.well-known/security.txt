@@ -1,0 +1,4 @@
+Contact: https://github.com/M1noa/proxypool/security/advisories
+Expires: 2027-09-24T00:00:00Z
+Preferred-Languages: en
+Canonical: https://proxies.minoa.cat/.well-known/security.txt
