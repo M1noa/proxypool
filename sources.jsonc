@@ -2764,6 +2764,17 @@
       "includes": []
     },
     {
+      "name": "rcloak-all",
+      "url": "https://rcloak.com/api/proxies/raw?protocol=all",
+      "format": "text",
+      "extract": {
+        "regex": "^(?:(?P<proto>[a-z0-9]+)://)?(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\\s*$"
+      },
+      "includes": [
+        "protocols"
+      ]
+    },
+    {
       "name": "proxypool",
       "display": "proxypool (this repo)",
       "home": "https://github.com/M1noa/proxypool",
