@@ -109,7 +109,16 @@ jobs:
     needs: guard
     if: needs.guard.outputs.due == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # 180, not 120: the pipeline's own budget is 1h57m counted from its
+    # start (a minute or two after the job starts, once checkout and the
+    # build are done) and it still has to write proxies.json,
+    # history.duckdb and the readme after that. at 120 the job killed the
+    # run at exactly the moment the pipeline was about to publish: the
+    # step ended as "cancelled" rather than "failed", so the actions
+    # page showed a wall of green runs while the output branch stopped
+    # moving. 180 leaves the pipeline's budget plus its write time inside
+    # the job.
+    timeout-minutes: 180
     concurrency:
       group: fetch
       cancel-in-progress: false
@@ -141,7 +150,13 @@ jobs:
             || echo "no prior proxies, fetching direct"
 
       - name: fetch, check, write outputs
-        run: ./bin/proxypool -egress output/egress.json
+        # 90m, not the pipeline's 1h57m default: the budget only covers the
+        # check phase. everything after it (history update over ~600k
+        # outcomes, prune, duckdb close, proxies.json) is undeadlined, and at
+        # the old budget it had 175s of a 120m job to run in before the
+        # runner killed it mid-write. 90m leaves 90m of the 180m job for that
+        # tail, whether it takes ten seconds or ten minutes.
+        run: ./bin/proxypool -egress output/egress.json -budget 90m
 
       - name: commit readme
         run: |
