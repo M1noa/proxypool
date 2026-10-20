@@ -28,7 +28,7 @@ on:
 
 permissions:
   contents: write
-  actions: read # guard reads this workflow's own run status
+  actions: write # guard reads run status, and cancels runs that never reported back
 
 jobs:
   # the cadence lives here, not in the cron. twelve slots would otherwise mean
@@ -74,9 +74,24 @@ jobs:
           # slot. an in-flight fetch always has the lower id, which is the case
           # that matters.
           active=$(gh run list --repo "$REPO" --workflow fetch.yml --limit 30 \
-                     --json databaseId,status \
-                     --jq '.[] | select(.status != "completed") | .databaseId') || active=""
-          for id in $active; do
+                     --json databaseId,status,createdAt \
+                     --jq '.[] | select(.status != "completed") | "\(.databaseId) \(.createdAt)"') || active=""
+          now=$(date -u +%s)
+          for entry in $active; do
+            id=${entry% *}
+            when=${entry#* }
+            mins=$(( (now - $(date -u -d "$when" +%s)) / 60 ))
+            # a run whose runner vanished never reports, and github keeps it
+            # "in progress" long after its job timeout. it then holds the
+            # concurrency group and this gate says "back off" to every slot
+            # that follows: on 2026-10-20 one such run from 01:03 froze the
+            # repo until someone cancelled it by hand. nothing here outlives
+            # its 180m job, so past 200m it is dead, whatever it says.
+            if [ "$mins" -ge 200 ]; then
+              echo "run $id has been active for ${mins}m, cancelling it"
+              gh run cancel "$id" --repo "$REPO" || true
+              continue
+            fi
             if [ "$id" -lt "$RUN_ID" ]; then
               echo "run $id still in flight, backing off"
               due false
@@ -121,7 +136,12 @@ jobs:
     timeout-minutes: 180
     concurrency:
       group: fetch
-      cancel-in-progress: false
+      # a slot that gets this far already cleared the guard, so it has no live
+      # run to disturb; what it does meet is the leftover of one that died
+      # without reporting. waiting on that is waiting forever, and it is the
+      # whole failure: a single hung run held the group for 14 days while every
+      # slot behind it backed off. a duplicate publish costs one wasted run.
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
