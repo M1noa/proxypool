@@ -156,10 +156,24 @@ jobs:
         # the old budget it had 175s of a 120m job to run in before the
         # runner killed it mid-write. 90m leaves 90m of the 180m job for that
         # tail, whether it takes ten seconds or ten minutes.
+        #
+        # 120, not the job's 180: a step that overruns that badly is hung, and
+        # a hung step must not eat the job's remaining time too. with a step
+        # timeout the runner stops this step alone, and the two steps below
+        # still get their turn, so a wedged run can no longer take the
+        # publish down with it.
+        timeout-minutes: 120
         run: ./bin/proxypool -egress output/egress.json -budget 90m
 
       - name: commit readme
+        # always, so a failed or timed-out step above cannot hold the commit
+        # hostage; the marker is what says the outputs on disk are a whole run
+        if: always()
         run: |
+          if [ ! -f output/.complete ]; then
+            echo "run did not finish, nothing to commit"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
@@ -173,7 +187,12 @@ jobs:
 
       - name: publish outputs
         # orphan temp repo force-pushed every run: output branch always has 1 commit
+        if: always()
         run: |
+          if [ ! -f output/.complete ]; then
+            echo "run did not finish, not publishing a partial history"
+            exit 0
+          fi
           work=$(mktemp -d)
           cp output/proxies.json output/history.duckdb output/useragents.json "$work/"
           git -C "$work" init -q
