@@ -91,6 +91,14 @@ func Run(ctx context.Context, o Options) error {
 	logf := o.Logf
 	tRun := time.Now()
 
+	// ci publishes on `if: always()` so a run that dies still ships whatever it
+	// finished. this file is the only proof it finished: drop the last run's
+	// before doing anything, and rewrite it once every output is on disk.
+	marker := filepath.Join(o.Out, ".complete")
+	if !o.DryRun {
+		os.Remove(marker)
+	}
+
 	// silent unless the process crosses half of system ram, which a healthy run
 	// does not come close to. when it does speak, it says where the memory is
 	// before it tries to reclaim any.
@@ -185,6 +193,9 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	logf("wrote %d proxies to proxies.json (in %.1fs)", n, time.Since(t0).Seconds())
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		return err
+	}
 	logf("total elapsed: %.1fs", time.Since(tRun).Seconds())
 	if len(errs) > 0 {
 		logf("")
