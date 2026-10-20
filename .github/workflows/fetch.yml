@@ -77,9 +77,8 @@ jobs:
                      --json databaseId,status,createdAt \
                      --jq '.[] | select(.status != "completed") | "\(.databaseId) \(.createdAt)"') || active=""
           now=$(date -u +%s)
-          for entry in $active; do
-            id=${entry% *}
-            when=${entry#* }
+          while read -r id when; do
+            [ -z "$id" ] && continue
             mins=$(( (now - $(date -u -d "$when" +%s)) / 60 ))
             # a run whose runner vanished never reports, and github keeps it
             # "in progress" long after its job timeout. it then holds the
@@ -96,7 +95,7 @@ jobs:
               echo "run $id still in flight, backing off"
               due false
             fi
-          done
+          done <<< "$active"
 
           # the publish step force-pushes the output branch every run, so that
           # commit's date is the last publish. no branch means none yet.
