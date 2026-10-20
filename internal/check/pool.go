@@ -321,7 +321,15 @@ func runPool(ctx context.Context, c *Checker, jobs []job, results []bool, outcom
 	select {
 	case <-done:
 	case <-ctx.Done():
-		<-done // rctx derives from ctx, so in-flight probes abort fast once it cancels
+		// checkOne's own wall ends a stuck record within recordWall even if its
+		// probes ignore cancellation, so this wait is bounded in practice. it
+		// stays bounded anyway: a worker wedged past the budget must not turn a
+		// late check phase into a run that never publishes.
+		select {
+		case <-done:
+		case <-time.After(recordWall() + 30*time.Second):
+			logf("pool still busy %s after the budget, abandoning its workers", recordWall()+30*time.Second)
+		}
 		checked := "?"
 		if cnt != nil {
 			checked = strconv.FormatInt(cnt.checked.Load(), 10)

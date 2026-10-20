@@ -18,6 +18,8 @@ import (
 	"net"
 	"net/http"
 	neturl "net/url"
+	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -354,11 +356,53 @@ func echoAnonymity(ctx context.Context, ip string, port int, myIP string, timeou
 	return ""
 }
 
-// checkOne is _check_one: verify every probe in plan, keep the fastest
+// recordWall bounds one record end to end. recordCap is the context deadline
+// the probes see; some of them (the socks5 dial) can't be cancelled and ignore
+// it, so a record needs a wall that doesn't depend on them cooperating.
+func recordWall() time.Duration { return recordCap + 5*time.Second }
+
+// checkRecordFn is the probe pipeline behind the wall. a var so a test can
+// wedge it and prove the wall returns.
+var checkRecordFn = (*Checker).checkRecord
+
+// checkOne is _check_one, wrapped in a hard wall. a single probe that ignores
+// cancellation must not be able to hold its worker, and with it the whole pool,
+// for the rest of the run: on the wall the record is reported dead and the
+// stuck goroutine is abandoned with a stack dump so the next one is diagnosable.
+func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string) (bool, []probeOutcome) {
+	type result struct {
+		ok       bool
+		outcomes []probeOutcome
+	}
+	ch := make(chan result, 1)
+	go func() {
+		// armed from inside the record's own goroutine so the dump below is
+		// this record's stack, not the whole pool's
+		st := time.AfterFunc(recordWall(), func() {
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, false)
+			fmt.Fprintf(os.Stderr, "\nrecord %s:%d stuck past %s\n%s\n", r.IP, r.Port, recordWall(), buf[:n])
+		})
+		defer st.Stop()
+		ok, po := checkRecordFn(c, ctx, r, plan)
+		ch <- result{ok: ok, outcomes: po}
+	}()
+
+	t := time.NewTimer(recordWall())
+	defer t.Stop()
+	select {
+	case res := <-ch:
+		return res.ok, res.outcomes
+	case <-t.C:
+		return false, make([]probeOutcome, len(plan))
+	}
+}
+
+// checkRecord is _check_one: verify every probe in plan, keep the fastest
 // calibrated result, fold https success into http, and fill in anonymity
 // when nothing already provided it. it mutates r in place and reports
 // whether anything in plan came back alive.
-func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string) (bool, []probeOutcome) {
+func (c *Checker) checkRecord(ctx context.Context, r *extract.Record, plan []string) (bool, []probeOutcome) {
 	outcomes := make([]probeOutcome, len(plan))
 	for i, p := range plan {
 		outcomes[i] = probeOutcome{Proto: p}
