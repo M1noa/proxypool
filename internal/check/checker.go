@@ -129,6 +129,31 @@ func fetchOK(ctx context.Context, client *http.Client, url string) (string, erro
 	return string(body), nil
 }
 
+// fetchCheck is the probe's GET, and unlike fetchOK it holds the endpoint to
+// its contract. generate_204 answers 204 with an empty body; a 200 carrying
+// html means the request did not reach the endpoint intact — a proxy's own
+// error page, a captive portal, or a box that answers every url it is given
+// with the same fixed response and forwards nothing. fetchOK accepts all of
+// those, because it only rejects 400 and up, which is how most of the published
+// pool came to be records that answer this probe and carry no traffic.
+func fetchCheck(ctx context.Context, client *http.Client, url string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	// a 204 carries no body by definition, so there is nothing to read: the
+	// status alone is the whole contract
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("status %d, want 204", resp.StatusCode)
+	}
+	return nil
+}
+
 // calibrate pings the check endpoint directly (no proxy) baselinePings times
 // and keeps the fastest, fills myIP from whichever MYIP url answers first,
 // and resolves the check host once for socks4's benefit.
@@ -279,7 +304,7 @@ func (c *Checker) probe(ctx context.Context, ip string, port int, proto string) 
 	client := &http.Client{Transport: tr}
 
 	t0 := time.Now()
-	if _, err := fetchOK(pctx, client, target); err != nil {
+	if err := fetchCheck(pctx, client, target); err != nil {
 		return 0, err
 	}
 	return float64(time.Since(t0)) / float64(time.Millisecond), nil
