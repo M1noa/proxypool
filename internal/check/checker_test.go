@@ -107,6 +107,42 @@ func TestFetchOK(t *testing.T) {
 	}
 }
 
+// TestFetchCheck is the guard the check endpoint's contract depends on: only a
+// 204 is proof a request made it through. a 200 with html is what a dead proxy,
+// a captive portal and a fixed-response server all answer with, and treating
+// that as alive is what put them in proxies.json.
+func TestFetchCheck(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/generate_204":
+			w.WriteHeader(http.StatusNoContent)
+		case "/portal":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<!doctype html><html>sign in to continue</html>"))
+		case "/errorpage":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<H1>Could not connect</H1>"))
+		case "/redir":
+			http.Redirect(w, r, "/portal", http.StatusFound)
+		case "/servererror":
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	ctx := context.Background()
+
+	if err := fetchCheck(ctx, client, srv.URL+"/generate_204"); err != nil {
+		t.Errorf("fetchCheck(204) = %v, want nil", err)
+	}
+	for _, path := range []string{"/portal", "/errorpage", "/redir", "/servererror"} {
+		if err := fetchCheck(ctx, client, srv.URL+path); err == nil {
+			t.Errorf("fetchCheck(%s) = nil, want a rejected response", path)
+		}
+	}
+}
+
 func TestTCPOpen(t *testing.T) {
 	c := &Checker{}
 	ctx := context.Background()
