@@ -1,6 +1,6 @@
-// package flows carries the three sources sources.jsonc cannot describe: a
-// protocol × anonymity matrix against one api, link discovery followed by
-// per-country tables, and a table whose ip cells are javascript.
+// package flows carries the two sources sources.jsonc cannot describe: link
+// discovery followed by per-country tables, and a table whose ip cells are
+// javascript.
 //
 // they scrape with regexes rather than an html parser, exactly as lib/flows.py
 // does — swapping in goquery would change which malformed rows survive.
@@ -8,7 +8,6 @@ package flows
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -24,11 +23,11 @@ import (
 )
 
 // Table is wired into fetch.Fetcher.Flows. lib/flows.FLOWS also lists
-// "spysone", which no source references — dead, so not ported.
+// "spysone" and "sixsixdaili"; spysone is not referenced by any source and
+// sixsixdaili's api.66daili.com domain is gone entirely, so neither is ported.
 var Table = map[string]fetch.FlowFunc{
-	"sixsixdaili": sixsixdaili,
-	"proxyhub":    proxyhub,
-	"proxynova":   proxynova,
+	"proxyhub":  proxyhub,
+	"proxynova": proxynova,
 }
 
 // flowTimeout is _get's default. note it is 20s, not request()'s 12s, so a
@@ -39,7 +38,6 @@ const flowTimeout = 20 * time.Second
 // `home` for these three, and nothing reads it. vars rather than consts so the
 // tests can point them at a local server.
 var (
-	dailiAPI      = "http://api.66daili.com//"
 	proxyhubHome  = "https://proxyhub.me/"
 	proxynovaHome = "https://www.proxynova.com/proxy-server-list/"
 )
@@ -142,77 +140,6 @@ func cells(html string) [][]string {
 		out = append(out, row)
 	}
 	return out
-}
-
-// ---- 66daili: cn api, proto × anonymity matrix ----------------------------
-
-// the api takes its anonymity filter as url-encoded chinese. kept encoded
-// because that is what goes on the wire; the value beside it is what the
-// record carries.
-var dailiAnon = []struct{ enc, name string }{
-	{"%E9%AB%98%E5%8C%BF", "elite"},
-	{"%E6%99%AE%E5%8C%BF", "anonymous"},
-	{"%E9%80%8F%E6%98%8E", "transparent"},
-}
-
-func sixsixdaili(ctx context.Context, fl *fetch.Flow) ([]*extract.Record, []string) {
-	r := newRunner(fl)
-	defer r.c.CloseIdle()
-
-	for _, proto := range []string{"HTTP", "HTTPS", "Socks4", "Socks5"} {
-		for _, anon := range dailiAnon {
-			if r.remain() <= 0 {
-				// python returns rather than breaks, so the remaining combos are
-				// abandoned and only one budget error is reported
-				r.errs = append(r.errs, r.src.Name+": budget exceeded")
-				return r.records()
-			}
-			url := fmt.Sprintf("%s?num=60&anonymity=%s&protocol=%s&format=json&page=1",
-				dailiAPI, anon.enc, proto)
-
-			txt, err := r.get(ctx, url)
-			if err == nil {
-				var doc any
-				if doc, err = extract.DecodeJSON(txt); err == nil {
-					err = r.dailiRows(doc, proto, anon.name)
-				}
-			}
-			if err != nil {
-				// one try wraps the fetch, the decode and the walk in python, so
-				// all three arrive under the same label
-				r.errs = append(r.errs, fmt.Sprintf("%s %s/%s: %v",
-					r.src.Name, proto, anon.name, err))
-			}
-		}
-	}
-	return r.records()
-}
-
-func (r *runner) dailiRows(doc any, proto, anon string) error {
-	obj, ok := doc.(map[string]any)
-	if !ok {
-		// python calls .get on it and the AttributeError lands in the readme
-		return errors.New("response is not an object")
-	}
-	// a `data` that is absent, null or not a list yields nothing and is not an
-	// error: python's `or []` covers the first two and iterating a dict of keys
-	// fails the isinstance check on every one.
-	rows, _ := obj["data"].([]any)
-	for _, row := range rows {
-		item, ok := row.(map[string]any)
-		if !ok || !extract.Truthy(item["ip"]) {
-			continue
-		}
-		// a missing port renders as "None" and the record is dropped later,
-		// which is what the f-string does
-		r.raws = append(r.raws, map[string]any{
-			"ip":        extract.PyStr(item["ip"]) + ":" + extract.PyStr(item["port"]),
-			"protocol":  strings.ToLower(proto),
-			"country":   "CN",
-			"anonymity": anon,
-		})
-	}
-	return nil
 }
 
 // ---- proxyhub: country links -> tables -------------------------------------

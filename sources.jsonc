@@ -3,7 +3,7 @@
   "sources": [
     {
       "name": "proxifly",
-      "url": "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.json",
+      "url": "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/all/data.json",
       "format": "json",
       "extract": {
         "root": "",
@@ -943,7 +943,7 @@
     },
     {
       "name": "ebrasha-http",
-      "url": "https://raw.githubusercontent.com/ebrasha/abdal-proxy-hub/refs/heads/main/http-proxy-list-by-EbraSha.txt",
+      "url": "https://raw.githubusercontent.com/mirrorrepomagic/abdal-proxy-hub/main/http-proxy-list-by-EbraSha.txt",
       "format": "text",
       "protocol": "http",
       "extract": {
@@ -953,7 +953,7 @@
     },
     {
       "name": "ebrasha-socks4",
-      "url": "https://raw.githubusercontent.com/ebrasha/abdal-proxy-hub/refs/heads/main/socks4-proxy-list-by-EbraSha.txt",
+      "url": "https://raw.githubusercontent.com/mirrorrepomagic/abdal-proxy-hub/main/socks4-proxy-list-by-EbraSha.txt",
       "format": "text",
       "protocol": "socks4",
       "extract": {
@@ -963,7 +963,7 @@
     },
     {
       "name": "ebrasha-socks5",
-      "url": "https://raw.githubusercontent.com/ebrasha/abdal-proxy-hub/refs/heads/main/socks5-proxy-list-by-EbraSha.txt",
+      "url": "https://raw.githubusercontent.com/mirrorrepomagic/abdal-proxy-hub/main/socks5-proxy-list-by-EbraSha.txt",
       "format": "text",
       "protocol": "socks5",
       "extract": {
@@ -1573,82 +1573,6 @@
       ]
     },
     {
-      "name": "scdn-http",
-      "display": "scdn.io http",
-      "home": "https://proxy.scdn.io/",
-      "url": "https://proxy.scdn.io/api/get_proxy.php?protocol=http&count=20&page={page}",
-      "format": "json",
-      "protocol": "http",
-      "extract": {
-        "root": "data.proxies",
-        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})$"
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      }
-    },
-    {
-      "name": "scdn-https",
-      "display": "scdn.io https",
-      "home": "https://proxy.scdn.io/",
-      "url": "https://proxy.scdn.io/api/get_proxy.php?protocol=https&count=20&page={page}",
-      "format": "json",
-      "protocol": "https",
-      "extract": {
-        "root": "data.proxies",
-        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})$"
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      }
-    },
-    {
-      "name": "scdn-socks4",
-      "display": "scdn.io socks4",
-      "home": "https://proxy.scdn.io/",
-      "url": "https://proxy.scdn.io/api/get_proxy.php?protocol=socks4&count=20&page={page}",
-      "format": "json",
-      "protocol": "socks4",
-      "extract": {
-        "root": "data.proxies",
-        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})$"
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      }
-    },
-    {
-      "name": "scdn-socks5",
-      "display": "scdn.io socks5",
-      "home": "https://proxy.scdn.io/",
-      "url": "https://proxy.scdn.io/api/get_proxy.php?protocol=socks5&count=20&page={page}",
-      "format": "json",
-      "protocol": "socks5",
-      "extract": {
-        "root": "data.proxies",
-        "regex": "^(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{1,5})$"
-      },
-      "pagination": {
-        "type": "page",
-        "start": 1,
-        "step": 1,
-        "stop": "empty",
-        "max_pages": 10
-      }
-    },
-    {
       "name": "proxyfreeonly",
       "display": "proxyfreeonly.com",
       "home": "https://proxyfreeonly.com/",
@@ -1722,10 +1646,19 @@
       "home": "https://floppydata.com/",
       "url": "https://geoxy.io/proxies?count=99999",
       "format": "json",
+      // the token no longer sits in the page itself: the page loads a hashed
+      // astro chunk that pairs the geoxy url with the token in one const, so
+      // discover the chunk, then read the token out of it
       "prefetch": [
         {
           "url": "https://floppydata.com/free-proxy/",
-          "regex": "Authorization[\"']?\\s*:\\s*[\"']([^\"']+)[\"']",
+          "regex": "src=\"([^\"]*FreeProxyList[^\"]*\\.js)\"",
+          "group": 1,
+          "as_url": true,
+          "base": "https://floppydata.com"
+        },
+        {
+          "regex": "const [A-Za-z_$][A-Za-z0-9_$]*=\"https://geoxy\\.io[^\"]*\",[A-Za-z_$][A-Za-z0-9_$]*=\"([A-Za-z0-9]+)\"",
           "group": 1,
           "header": "Authorization"
         }
@@ -1743,32 +1676,13 @@
       "name": "proxybros",
       "display": "proxybros.com",
       "home": "https://proxybros.com/",
-      "url": "https://proxybros.com/free-proxy-list/",
-      "format": "json",
-      "prefetch": [
-        {
-          "url": "https://proxybros.com/wp-admin/admin-ajax.php",
-          "method": "POST",
-          "body_type": "form",
-          "body": {
-            "action": "nrproxyexport",
-            "type": "2",
-            "lang": "en",
-            "path": "/free-proxy-list/"
-          },
-          "json_path": "href",
-          "as_url": true
-        }
-      ],
+      // the csv export api; the trailing slash matters, the bare path 308s
+      "url": "https://proxybros.com/api/free-proxies/export/?format=csv",
+      "format": "text",
       "extract": {
-        "root": "",
-        "ip": "IP_Address",
-        "port": "Port",
-        "protocols": "Type",
-        "anonymity": "Anonymity",
-        "country": "Country",
-        "response_time": "Delay"
-      }
+        "regex": "\"(?P<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?P<port>\\d{2,5})\",\"(?P<proto>[a-z0-9]+)\",\"(?P<country>[A-Z]{2})\""
+      },
+      "includes": []
     },
     {
       "name": "freeproxyworld",
@@ -1934,28 +1848,20 @@
       "country": "CN",
       "anonymity": "elite",
       "extract": {
-        "embedded_json": {
-          "selector": "script",
-          "regex": "const\\s+fpsList\\s*=\\s*(\\[[\\s\\S]*?\\])\\s*;"
-        },
-        "root": "",
-        "ip": "ip",
-        "port": "port",
-        "response_time": "speed"
+        "row_selector": ".v2-free-table__row",
+        "ip": "span.v2-free-table__ip",
+        "port": "span:nth-child(2)",
+        "response_time": "span.v2-free-table__response"
       },
       "pagination": {
         "type": "page",
         "start": 1,
         "step": 1,
         "stop": "empty",
-        "max_pages": 10
+        "max_pages": 10,
+        // three rapid page hits in a row draw a 403
+        "delay_ms": 1500
       }
-    },
-    {
-      "name": "sixsixdaili",
-      "display": "66daili.com (cn api)",
-      "home": "http://api.66daili.com/",
-      "flow": "sixsixdaili"
     },
     {
       "name": "goodips",
@@ -1997,27 +1903,6 @@
         {"url": "https://www.my-proxy.com/free-socks-5-proxy.html", "set": {"protocol": "socks5", "anonymity": "elite"}}
       ],
       "pagination": {"type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 10}
-    },
-    {
-      "name": "iproyal",
-      "display": "iproyal.com",
-      "home": "https://iproyal.com/",
-      // static public token lifted from the site's frontend
-      "url": "https://cms.iproyal.com/api/free-proxy-records?fields[0]=ip&fields[1]=port&fields[2]=protocol&fields[3]=country&pagination[page]={page}&pagination[pageSize]=100",
-      "format": "json",
-      "headers": {
-        "authorization": "Bearer c07d9ce184008ff4be5ab6afa6a67a7513e5ece56e43b60ad1ddb0b86f952318e1ebebf54825bccb6191da8ad135cc29c963ce3f1c46dc4ad8364440333d6bee44ae20e3f0e63c29d3c5139c35f84b70d88b4e5de1e2f25cf07dca5d40fa5c0fa093490a5919e3269f2fa853776c59642c50b0cfc761c7f3943edd1908605661",
-        "origin": "https://iproyal.com",
-        "referer": "https://iproyal.com/"
-      },
-      "extract": {
-        "root": "data",
-        "ip": "ip",
-        "port": "port",
-        "protocol": "protocol",
-        "country": "country"
-      },
-      "pagination": {"type": "page", "start": 1, "step": 1, "stop": "empty", "max_pages": 3}
     },
     {
       "name": "proxyshare",

@@ -97,113 +97,6 @@ func TestCells(t *testing.T) {
 	}
 }
 
-func TestSixsixdailiMatrix(t *testing.T) {
-	var rec recorder
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		rec.add(q.Get("protocol") + "/" + q.Get("anonymity"))
-		// the second row has no port, so the f-string renders "None" and the
-		// record is dropped on normalization
-		fmt.Fprintf(w, `{"data":[{"ip":"1.2.3.%d","port":8080},{"ip":"5.6.7.1"}]}`,
-			len(rec.seen))
-	}))
-	defer srv.Close()
-	dailiAPI = srv.URL + "//"
-
-	recs, errs := sixsixdaili(context.Background(), flowFor("sixsixdaili", time.Minute))
-	if len(errs) != 0 {
-		t.Fatalf("errors: %v", errs)
-	}
-	// 4 protocols x 3 anonymity values, in declaration order. the url carries
-	// the anonymity encoded, so the server sees it decoded.
-	want := strings.Join([]string{
-		"HTTP/高匿", "HTTP/普匿", "HTTP/透明",
-		"HTTPS/高匿", "HTTPS/普匿", "HTTPS/透明",
-		"Socks4/高匿", "Socks4/普匿", "Socks4/透明",
-		"Socks5/高匿", "Socks5/普匿", "Socks5/透明",
-	}, "\n")
-	if got := rec.joined(); got != want {
-		t.Fatalf("requests =\n%s\nwant\n%s", got, want)
-	}
-	if len(recs) != 12 {
-		t.Fatalf("records = %v, want 12", ips(recs))
-	}
-	first, last := recs[0], recs[11]
-	if first.Country != "CN" || first.Anonymity != "elite" ||
-		strings.Join(first.Protocols, ",") != "http" {
-		t.Errorf("first = %+v", first)
-	}
-	if last.Anonymity != "transparent" || strings.Join(last.Protocols, ",") != "socks5" {
-		t.Errorf("last = %+v", last)
-	}
-}
-
-func TestSixsixdailiBudgetExceeded(t *testing.T) {
-	var rec recorder
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec.add(r.URL.Path)
-		fmt.Fprint(w, `{"data":[]}`)
-	}))
-	defer srv.Close()
-	dailiAPI = srv.URL + "//"
-
-	recs, errs := sixsixdaili(context.Background(), flowFor("sixsixdaili", -time.Second))
-	// the budget is checked before the first combo and the flow returns rather
-	// than continuing, so there is exactly one error and no request
-	if len(errs) != 1 || errs[0] != "sixsixdaili: budget exceeded" {
-		t.Fatalf("errors = %v", errs)
-	}
-	if len(recs) != 0 || rec.joined() != "" {
-		t.Fatalf("recs=%v requests=%q", ips(recs), rec.joined())
-	}
-}
-
-func TestSixsixdailiPerComboErrors(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("protocol") == "HTTP" {
-			http.Error(w, "nope", 404)
-			return
-		}
-		fmt.Fprint(w, `[1,2,3]`)
-	}))
-	defer srv.Close()
-	dailiAPI = srv.URL + "//"
-
-	recs, errs := sixsixdaili(context.Background(), flowFor("sixsixdaili", time.Minute))
-	if len(recs) != 0 {
-		t.Fatalf("records = %v", ips(recs))
-	}
-	// every combo fails and each is labelled with its own pair
-	if len(errs) != 12 {
-		t.Fatalf("errors = %v, want 12", errs)
-	}
-	if !strings.HasPrefix(errs[0], "sixsixdaili HTTP/elite: 404 Client Error") {
-		t.Errorf("errs[0] = %q", errs[0])
-	}
-	// a fetch that works but answers with a list, not an object
-	if errs[3] != "sixsixdaili HTTPS/elite: response is not an object" {
-		t.Errorf("errs[3] = %q", errs[3])
-	}
-}
-
-// TestSixsixdailiTolerantData covers the shapes python swallows without an
-// error: no data key, a null one, and one that is not a list.
-func TestSixsixdailiTolerantData(t *testing.T) {
-	bodies := []string{`{}`, `{"data":null}`, `{"data":{"a":1}}`, `{"data":["x",{"ip":""}]}`}
-	var n int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, bodies[n%len(bodies)])
-		n++
-	}))
-	defer srv.Close()
-	dailiAPI = srv.URL + "//"
-
-	recs, errs := sixsixdaili(context.Background(), flowFor("sixsixdaili", time.Minute))
-	if len(errs) != 0 || len(recs) != 0 {
-		t.Fatalf("recs=%v errs=%v", ips(recs), errs)
-	}
-}
-
 const proxyhubRow = `<tr><td>flag</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`
 
 func TestProxyhubDiscoversLinks(t *testing.T) {
@@ -411,7 +304,7 @@ func TestTableCoversEveryConfiguredFlow(t *testing.T) {
 			t.Errorf("source %q names unregistered flow %q", srcs[i].Name, srcs[i].Flow)
 		}
 	}
-	if n != 3 {
-		t.Errorf("flow sources = %d, want 3", n)
+	if n != 2 {
+		t.Errorf("flow sources = %d, want 2", n)
 	}
 }
