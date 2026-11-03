@@ -19,6 +19,7 @@ import (
 	"github.com/M1noa/proxypool/internal/memwatch"
 	"github.com/M1noa/proxypool/internal/output"
 	"github.com/M1noa/proxypool/internal/pyfmt"
+	"github.com/M1noa/proxypool/internal/reputation"
 	"github.com/M1noa/proxypool/internal/uagen"
 )
 
@@ -35,14 +36,15 @@ type Options struct {
 	SourcesPath string // defaults to <root>/sources.jsonc
 	Readme      string // defaults to <root>/README.md
 
-	SkipFetch     bool // reuse the previous proxies.json instead of fetching
-	SkipCheck     bool // fetch and merge only: no geoip, asn, history or probing
-	SkipSpeedtest bool // derive concurrency without measuring bandwidth
-	SkipGeoIP     bool
-	SkipASN       bool
-	SkipHistory   bool
-	SkipReadme    bool
-	SkipUagen     bool // skip useragents.json regeneration
+	SkipFetch      bool // reuse the previous proxies.json instead of fetching
+	SkipCheck      bool // fetch and merge only: no geoip, asn, history or probing
+	SkipSpeedtest  bool // derive concurrency without measuring bandwidth
+	SkipGeoIP      bool
+	SkipASN        bool
+	SkipHistory    bool
+	SkipReadme     bool
+	SkipUagen      bool // skip useragents.json regeneration
+	SkipReputation bool // no ipsum / ffrraud threat feed lookup
 
 	Only    []string // only these source names
 	Exclude []string // drop these source names
@@ -136,6 +138,24 @@ func Run(ctx context.Context, o Options) error {
 	records := finalize(merge(raw))
 	logf("unique proxies: %d", len(records))
 
+	// the threat feeds are loaded before probing so their verdict can weigh on
+	// the score, and kept for the write phase so records carried over from the
+	// last run publish what the feeds say about them too. neither feed is fatal:
+	// a run that cannot reach both still publishes proxies, just without the
+	// reputation block.
+	var rep *reputation.Feed
+	if !o.SkipReputation {
+		t0 := time.Now()
+		rep, err = reputation.Load(ctx, o.Cache)
+		if err != nil {
+			logf("reputation: %v, continuing without", err)
+		} else {
+			ipsumN, fraudN := rep.Len()
+			logf("reputation: %d ipsum, %d ffrraud addresses in %.1fs",
+				ipsumN, fraudN, time.Since(t0).Seconds())
+		}
+	}
+
 	// per-source fetched counts, taken before dead proxies are dropped so the
 	// readme's success rate has a denominator
 	fetchedPerSource := map[string]int{}
@@ -164,7 +184,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	if !o.SkipCheck {
-		if items, err = checkPhase(ctx, o, items, tRun, watch); err != nil {
+		if items, err = checkPhase(ctx, o, items, tRun, watch, rep); err != nil {
 			return err
 		}
 	}
@@ -188,7 +208,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	t0 := time.Now()
-	n, err := writeOutputs(o, items, fetchedPerSource, sources)
+	n, err := writeOutputs(o, items, fetchedPerSource, sources, rep)
 	if err != nil {
 		return err
 	}
@@ -210,7 +230,7 @@ func Run(ctx context.Context, o Options) error {
 // checkPhase fills in country, asn and ip_type, probes every record's claimed
 // protocols, and folds the resulting history into per-record scores. it returns
 // only the records that answered.
-func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, watch *memwatch.Watcher) ([]*item, error) {
+func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, watch *memwatch.Watcher, rep *reputation.Feed) ([]*item, error) {
 	logf := o.Logf
 
 	if !o.SkipGeoIP {
@@ -299,7 +319,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 		}
 		hist = nil
 		for _, it := range kept {
-			it.check = blendScores(it.rec, scores)
+			it.check = blendScores(it.rec, scores, rep)
 		}
 		logf("history: %d proto states scored, %d pruned in %.1fs",
 			len(scores), pruned, time.Since(t0).Seconds())
@@ -310,7 +330,13 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 // blendScores averages the record's live protocols' reliability and quality,
 // sums their counters, and takes the outer bounds of their timestamps. a record
 // with no scored protocol is treated as brand new.
-func blendScores(r *extract.Record, scores map[history.Key]history.Score) *output.CheckFields {
+//
+// the threat feeds then scale quality by at most reputation.maxPenalty. that is
+// a weighting, not a veto: blacklists and a fraud score are other people's
+// opinions about an address, while reliability and speed are our own
+// measurement of it, so a fast, answering proxy that some feed dislikes sinks in
+// the sort order without being thrown out of the pool.
+func blendScores(r *extract.Record, scores map[history.Key]history.Score, rep *reputation.Feed) *output.CheckFields {
 	// accumulated in one pass: gathering the matches into a slice first cost a
 	// heap allocation per record for at most four values, read once
 	f := &output.CheckFields{}
@@ -332,10 +358,13 @@ func blendScores(r *extract.Record, scores map[history.Key]history.Score) *outpu
 	if n == 0 {
 		// nothing else was touched, so f is still zero apart from these two
 		f.Reliability, f.Quality = history.NewProxyScore, history.NewProxyScore
-		return f
+	} else {
+		f.Reliability = pyfmt.RoundN(rel/float64(n), 4)
+		f.Quality = pyfmt.RoundN(qual/float64(n), 4)
 	}
-	f.Reliability = pyfmt.RoundN(rel/float64(n), 4)
-	f.Quality = pyfmt.RoundN(qual/float64(n), 4)
+	if e, ok := rep.Entry(r.IP); ok {
+		f.Quality = pyfmt.RoundN(f.Quality*e.QualityFactor(), 4)
+	}
 	return f
 }
 
@@ -414,13 +443,29 @@ func fillASN(ctx context.Context, o Options, items []*item) error {
 }
 
 // writeOutputs is write_outputs: sort, serialize, and refresh the readme.
-func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sources []config.Source) (int, error) {
+func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sources []config.Source, rep *reputation.Feed) (int, error) {
 	recs := make([]*output.Record, len(items))
 	for i, it := range items {
 		r := output.FromRecord(it.rec)
 		r.Carried = it.carried
 		r.ASN, r.AsOrg, r.IPType = it.asn, it.asOrg, it.ipType
 		r.Check = it.check
+		// this run's feeds are authoritative: an address that dropped off every
+		// list loses the block rather than keeping last run's verdict. only a run
+		// with no feed at all falls back to what the previous run published.
+		if rep != nil {
+			if e, ok := rep.Entry(it.rec.IP); ok {
+				r.Reputation = &output.ReputationFields{
+					Blacklists:    e.Blacklists,
+					FraudScore:    e.FraudScore,
+					FraudReports:  e.FraudReports,
+					FraudCategory: e.FraudCategory,
+					FraudType:     e.FraudType,
+				}
+			}
+		} else {
+			r.Reputation = it.reputation
+		}
 		recs[i] = r
 	}
 	output.SortRecords(recs)

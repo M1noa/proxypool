@@ -76,6 +76,7 @@ func runPipeline(ctx context.Context, argv []string) error {
 	fs.BoolVar(&o.SkipHistory, "skip-history", false, "no duckdb read/write, no scoring or skip-selection")
 	fs.BoolVar(&o.SkipReadme, "skip-readme", false, "leave README.md alone")
 	fs.BoolVar(&o.SkipUagen, "skip-uagen", false, "skip useragents.json regeneration")
+	fs.BoolVar(&o.SkipReputation, "skip-reputation", false, "no ipsum / ffrraud threat feed lookup")
 
 	sources := fs.String("sources", "", "only these source names (comma separated)")
 	exclude := fs.String("exclude", "", "drop these source names (comma separated)")

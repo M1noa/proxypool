@@ -12,33 +12,35 @@ import (
 // item is one record in flight: the extract.Record the fetch and check layers
 // operate on, plus the output-only fields geoip, asn and history fill in after.
 type item struct {
-	rec     *extract.Record
-	carried bool
-	asn     *int
-	asOrg   string
-	ipType  string
-	check   *output.CheckFields
+	rec        *extract.Record
+	carried    bool
+	asn        *int
+	asOrg      string
+	ipType     string
+	reputation *output.ReputationFields
+	check      *output.CheckFields
 }
 
 // prevRecord is one entry of a previous run's proxies.json. the schema is
-// closed - this program wrote the file - so the 15 always-present keys plus the
-// 6 the checker phase adds cover it exactly.
+// closed - this program wrote the file - so the 15 always-present keys, the
+// optional reputation block and the 6 the checker phase adds cover it exactly.
 type prevRecord struct {
-	IP                string         `json:"ip"`
-	IPVersion         string         `json:"ip_version"`
-	Port              int            `json:"port"`
-	Protocols         []string       `json:"protocols"`
-	Country           string         `json:"country"`
-	Anonymity         string         `json:"anonymity"`
-	HTTPS             bool           `json:"https"`
-	Sources           []string       `json:"sources"`
-	SourceMeta        map[string]any `json:"source_meta"`
-	LastChecked       *string        `json:"last_checked"`
-	ResponseTimeMS    *int           `json:"response_time_ms"`
-	ResponseTimeRawMS *int           `json:"response_time_raw_ms"`
-	ASN               *int           `json:"asn"`
-	AsOrg             string         `json:"as_org"`
-	IPType            string         `json:"ip_type"`
+	IP                string                   `json:"ip"`
+	IPVersion         string                   `json:"ip_version"`
+	Port              int                      `json:"port"`
+	Protocols         []string                 `json:"protocols"`
+	Country           string                   `json:"country"`
+	Anonymity         string                   `json:"anonymity"`
+	HTTPS             bool                     `json:"https"`
+	Sources           []string                 `json:"sources"`
+	SourceMeta        map[string]any           `json:"source_meta"`
+	LastChecked       *string                  `json:"last_checked"`
+	ResponseTimeMS    *int                     `json:"response_time_ms"`
+	ResponseTimeRawMS *int                     `json:"response_time_raw_ms"`
+	ASN               *int                     `json:"asn"`
+	AsOrg             string                   `json:"as_org"`
+	IPType            string                   `json:"ip_type"`
+	Reputation        *output.ReputationFields `json:"reputation"`
 
 	Reliability *float64 `json:"reliability"`
 	Quality     *float64 `json:"quality"`
@@ -101,7 +103,7 @@ func loadPrevious(path string, seen map[string]bool) (items []*item, existed boo
 		if rec.SourceMeta == nil {
 			rec.SourceMeta = map[string]any{}
 		}
-		it := &item{rec: rec, carried: true, asn: p.ASN, asOrg: p.AsOrg, ipType: p.IPType}
+		it := &item{rec: rec, carried: true, asn: p.ASN, asOrg: p.AsOrg, ipType: p.IPType, reputation: p.Reputation}
 		// the 6 score keys travel together: present only if the run that wrote
 		// them checked. -skip-check preserves them, otherwise they get replaced.
 		if p.Reliability != nil {

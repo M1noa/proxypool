@@ -22,6 +22,18 @@ type CheckFields struct {
 	LastSeen    *string
 }
 
+// ReputationFields is what the public threat feeds say about a record's
+// address: ipsum's count of blacklists reporting it, and ffrraud's fraud
+// score, independent confirmations, category and infrastructure type. absent
+// (nil) means neither feed lists the address, which is the common case.
+type ReputationFields struct {
+	Blacklists    int    `json:"blacklists"`
+	FraudScore    int    `json:"fraud_score"`
+	FraudReports  int    `json:"fraud_reports"`
+	FraudCategory string `json:"fraud_category"`
+	FraudType     string `json:"fraud_type"`
+}
+
 // Record is one write_outputs record: extract.Record plus whatever geoip/asn
 // and history filled in, holding exactly the fields that reach json, in
 // their fixed serialization order (see json.go).
@@ -41,6 +53,7 @@ type Record struct {
 	ASN               *int
 	AsOrg             string
 	IPType            string
+	Reputation        *ReputationFields
 	Check             *CheckFields
 
 	// Carried marks a record recycled from a prior run's json rather than
