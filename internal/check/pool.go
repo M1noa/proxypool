@@ -61,7 +61,7 @@ type Options struct {
 	Speedtest   bool
 	PrevAlive   map[AliveKey]bool
 	Logf        func(format string, args ...any)
-	// Timeout caps one probe. zero uses the 5s default.
+	// Timeout caps one probe. zero uses the 10s default.
 	Timeout time.Duration
 }
 

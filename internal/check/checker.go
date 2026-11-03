@@ -50,8 +50,8 @@ const (
 	// mean occupancy: most probes are dead and time out, so this tracks
 	// timeoutDefault rather than standing on its own — a longer timeout makes each
 	// probe idle longer for the same cpu and wire cost, which is why the budgets
-	// below multiply by it. measured 4.0 against a 5s timeout; scaled for 6.5s.
-	probeSeconds   = 5.2
+	// below multiply by it. measured 4.0 against a 5s timeout; scaled for 10s.
+	probeSeconds   = 8.0
 	probeCPUms     = 0.5       // tls handshake and teardown, per probe
 	probeRAMBytes  = 256 << 10 // goroutine, its parallel transports, tls buffers
 	probeWireBytes = 12 << 10  // handshake plus a 204, rounded up
@@ -62,15 +62,20 @@ const (
 )
 
 // timeoutDefault and recordCap are vars, not consts, only so tests can shrink
-// them instead of waiting out a real 5s/25s timeout.
+// them instead of waiting out a real 10s/45s timeout. 10s rather than 6.5s:
+// slow-but-working proxies (congested exits, high-rtt regions) answered past
+// the old cap and died here; the pool's concurrency absorbs the extra wall
+// time.
 var (
-	timeoutDefault = 6500 * time.Millisecond
+	timeoutDefault = 10 * time.Second
 	// recordCap is a cheap backstop around one record's whole check (tcp open,
 	// every probe, the anonymity echo): python's RECORD_CAP existed to force a
 	// wedged coroutine's cancellation to actually take; context cancellation
 	// here already does that, so this is just an upper bound on how long one
-	// record may occupy a worker.
-	recordCap = 25 * time.Second
+	// record may occupy a worker. sized for the worst legitimate record —
+	// tcp + probes + a two-url echo at the full timeout — not for the
+	// pathological ones.
+	recordCap = 45 * time.Second
 
 	echoURLs = []string{"http://azenv.net/", "http://httpbin.org/get"}
 	myIPURLs = []string{"https://api.ipify.org", "https://icanhazip.com"}
