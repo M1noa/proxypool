@@ -14,9 +14,10 @@ import (
 )
 
 // EncodeTo ports write_outputs' json.dumps(records, indent=2): array of
-// objects, fixed key order per record (15 keys, or 21 with Check set), no
-// trailing newline, non-ascii escaped to \uXXXX, <>& left unescaped - the
-// opposite of encoding/json's defaults on both axes, hence hand-rolled.
+// objects, fixed key order per record (15 keys, 16 with reputation, 21 with
+// Check set), no trailing newline, non-ascii escaped to \uXXXX, <>& left
+// unescaped - the opposite of encoding/json's defaults on both axes, hence
+// hand-rolled.
 //
 // source_meta values come from internal/extract, decoded with UseNumber so a
 // json.Number renders using its original source text rather than float64's
@@ -75,6 +76,9 @@ func recordPairs(dst []kv, r *Record) []kv {
 		kv{"as_org", r.AsOrg},
 		kv{"ip_type", r.IPType},
 	)
+	if p := r.Reputation; p != nil {
+		pairs = append(pairs, kv{"reputation", p})
+	}
 	if c := r.Check; c != nil {
 		pairs = append(pairs,
 			kv{"reliability", c.Reliability},
@@ -119,8 +123,23 @@ func writeValue(b *bufio.Writer, v any, indent int) {
 		writeArray(b, t, indent, writeValue)
 	case map[string]any:
 		writeObjectPairs(b, mapToPairs(t), indent)
+	case *ReputationFields:
+		writeObjectPairs(b, reputationPairs(t), indent)
 	default:
 		panic(fmt.Sprintf("output: unsupported value type %T", v))
+	}
+}
+
+// reputationPairs is ReputationFields in its fixed key order. a field the feeds
+// do not carry (no category, no type, not on any blacklist) still appears, so a
+// consumer never has to tell a missing key apart from an empty value.
+func reputationPairs(p *ReputationFields) []kv {
+	return []kv{
+		{"blacklists", p.Blacklists},
+		{"fraud_score", p.FraudScore},
+		{"fraud_reports", p.FraudReports},
+		{"fraud_category", p.FraudCategory},
+		{"fraud_type", p.FraudType},
 	}
 }
 
