@@ -16,6 +16,7 @@ import (
 	"github.com/M1noa/proxypool/internal/flows"
 	"github.com/M1noa/proxypool/internal/geoip"
 	"github.com/M1noa/proxypool/internal/history"
+	"github.com/M1noa/proxypool/internal/lifecycle"
 	"github.com/M1noa/proxypool/internal/memwatch"
 	"github.com/M1noa/proxypool/internal/output"
 	"github.com/M1noa/proxypool/internal/pyfmt"
@@ -183,10 +184,28 @@ func Run(ctx context.Context, o Options) error {
 		logf("limit: kept %d records", len(items))
 	}
 
+	// the run's lifecycle counts, taken after -limit so the invariant
+	// Counts.Check enforces covers exactly the records that entered the check
+	// phase. the origin half is read here because the check phase keeps only the
+	// records that survived it; the probe half is filled in from its stats.
+	counts := lifecycle.Counts{}
+	for _, it := range items {
+		if it.carried {
+			counts.Carried++
+			continue
+		}
+		counts.Fetched++
+	}
+
+	var stats check.Stats
 	if !o.SkipCheck {
-		if items, err = checkPhase(ctx, o, items, tRun, watch, rep); err != nil {
+		if items, stats, err = checkPhase(ctx, o, items, tRun, watch, rep); err != nil {
 			return err
 		}
+		counts.Skipped = stats.Skipped
+		counts.Alive = stats.Alive - stats.Revived
+		counts.Revived = stats.Revived
+		counts.Dead = stats.Dead
 	}
 
 	// user agents regenerate every run from live version inputs, independent
@@ -212,9 +231,28 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	logf("wrote %d proxies to proxies.json (in %.1fs)", n, time.Since(t0).Seconds())
-	if err := os.WriteFile(marker, nil, 0o644); err != nil {
-		return err
+	if o.DryRun {
+		logf("dry run: would write %d proxies (in %.1fs)", n, time.Since(t0).Seconds())
+	} else {
+		logf("wrote %d proxies to proxies.json (in %.1fs)", n, time.Since(t0).Seconds())
+	}
+
+	// one line for the whole run, and the check that its numbers add up. the
+	// warning is not fatal: a run stopped mid-check accounts for fewer records
+	// than it loaded, and the reason was already logged above.
+	counts.Published = n
+	logf("%s", counts.String())
+	if err := counts.Check(); err != nil {
+		logf("lifecycle: %v", err)
+	}
+
+	// the marker says the files on disk are a whole run. -dry-run wrote none, so
+	// writing it would claim something false - and needing the out dir to exist
+	// is exactly the side effect the flag exists to avoid.
+	if !o.DryRun {
+		if err := os.WriteFile(marker, nil, 0o644); err != nil {
+			return err
+		}
 	}
 	logf("total elapsed: %.1fs", time.Since(tRun).Seconds())
 	if len(errs) > 0 {
@@ -230,17 +268,17 @@ func Run(ctx context.Context, o Options) error {
 // checkPhase fills in country, asn and ip_type, probes every record's claimed
 // protocols, and folds the resulting history into per-record scores. it returns
 // only the records that answered.
-func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, watch *memwatch.Watcher, rep *reputation.Feed) ([]*item, error) {
+func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, watch *memwatch.Watcher, rep *reputation.Feed) (kept []*item, stats check.Stats, err error) {
 	logf := o.Logf
 
 	if !o.SkipGeoIP {
 		if err := fillCountries(ctx, o, items); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 	}
 	if !o.SkipASN {
 		if err := fillASN(ctx, o, items); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 	}
 
@@ -258,7 +296,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 	if !o.SkipHistory {
 		h, err := history.Open(filepath.Join(o.Out, "history.duckdb"))
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		hist = h
 		// duckdb's memory is cgo memory, invisible to runtime.MemStats, so the
@@ -272,7 +310,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 			}
 		}()
 		if state, err = hist.StateMap(); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		skips = history.SkipKeys(recs, state, time.Time{}, nil)
 		prevAlive = history.AliveMap(state)
@@ -296,7 +334,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 	logf("alive=%d dead=%d skipped=%d revived=%d baseline=%dms in %.1fs",
 		stats.Alive, stats.Dead, stats.Skipped, stats.Revived, stats.BaselineMS, time.Since(t0).Seconds())
 
-	kept := make([]*item, 0, len(alive))
+	kept = make([]*item, 0, len(alive))
 	for _, r := range alive {
 		kept = append(kept, byRec[r])
 	}
@@ -304,18 +342,18 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 	if hist != nil {
 		t0 := time.Now()
 		if err := hist.UpdateState(outcomes, history.Now(), state); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		scores, err := hist.Scores()
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		pruned, err := hist.Prune(time.Now())
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		if err := hist.Close(); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		hist = nil
 		for _, it := range kept {
@@ -324,7 +362,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 		logf("history: %d proto states scored, %d pruned in %.1fs",
 			len(scores), pruned, time.Since(t0).Seconds())
 	}
-	return kept, nil
+	return kept, stats, nil
 }
 
 // blendScores averages the record's live protocols' reliability and quality,
