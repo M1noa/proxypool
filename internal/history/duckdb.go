@@ -138,6 +138,10 @@ type Score struct {
 	ChecksOK    int
 	FirstSeen   *string
 	LastSeen    *string
+	// AvgResponseMS is rt_ema's milliseconds, nil until a probe measured one.
+	AvgResponseMS *int
+	// FailsStreak counts consecutive failed checks ending at the last one.
+	FailsStreak int
 }
 
 // History wraps output/history.duckdb.
@@ -459,7 +463,7 @@ func (h *History) MemoryUsage() string {
 func (h *History) Scores() (map[Key]Score, error) {
 	rows, err := h.db.Query(
 		"SELECT ip, port, proto, rel_ema, rt_ema, ok_count, check_count," +
-			" first_seen_ts, last_checked_ts FROM proxy_state")
+			" first_seen_ts, last_checked_ts, fails_streak FROM proxy_state")
 	if err != nil {
 		return nil, err
 	}
@@ -469,10 +473,10 @@ func (h *History) Scores() (map[Key]Score, error) {
 	for rows.Next() {
 		var k Key
 		var relEMA, rtEMA sql.NullFloat64
-		var ok, total int
+		var ok, total, fails int
 		var first, last sql.NullString
 		if err := rows.Scan(&k.IP, &k.Port, &k.Proto, &relEMA, &rtEMA,
-			&ok, &total, &first, &last); err != nil {
+			&ok, &total, &first, &last, &fails); err != nil {
 			return nil, err
 		}
 		if total == 0 {
@@ -497,6 +501,11 @@ func (h *History) Scores() (map[Key]Score, error) {
 			Quality:     pyfmt.RoundN(rel*speed, 4),
 			ChecksTotal: total,
 			ChecksOK:    ok,
+			FailsStreak: fails,
+		}
+		if rtEMA.Valid {
+			ms := int(math.Round(rtEMA.Float64))
+			sc.AvgResponseMS = &ms
 		}
 		if first.Valid {
 			sc.FirstSeen = &first.String

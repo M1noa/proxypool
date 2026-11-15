@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -380,6 +381,8 @@ func blendScores(r *extract.Record, asn int, scores map[history.Key]history.Scor
 	// heap allocation per record for at most four values, read once
 	f := &output.CheckFields{}
 	var rel, qual float64
+	var rtSum float64
+	var rtN int
 	n := 0
 	for _, p := range r.Protocols {
 		s, ok := scores[history.Key{IP: r.IP, Port: r.Port, Proto: p}]
@@ -393,6 +396,16 @@ func blendScores(r *extract.Record, asn int, scores map[history.Key]history.Scor
 		f.ChecksOK += s.ChecksOK
 		f.FirstSeen = minTS(f.FirstSeen, s.FirstSeen)
 		f.LastSeen = maxTS(f.LastSeen, s.LastSeen)
+		if s.AvgResponseMS != nil {
+			rtSum += float64(*s.AvgResponseMS)
+			rtN++
+		}
+		// a streak on any of the record's protocols is a streak on the address
+		f.FailsStreak = max(f.FailsStreak, s.FailsStreak)
+	}
+	if rtN > 0 {
+		ms := int(math.Round(rtSum / float64(rtN)))
+		f.AvgResponseMS = &ms
 	}
 	if n == 0 {
 		// nothing else was touched, so f is still zero apart from these two

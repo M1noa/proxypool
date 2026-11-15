@@ -90,6 +90,8 @@ func recordPairs(dst []kv, r *Record) []kv {
 			kv{"checks_ok", c.ChecksOK},
 			kv{"first_seen", derefAny(c.FirstSeen)},
 			kv{"last_seen", derefAny(c.LastSeen)},
+			kv{"avg_response_ms", derefAny(c.AvgResponseMS)},
+			kv{"fails_streak", c.FailsStreak},
 		)
 	}
 	return pairs

@@ -335,7 +335,7 @@ func TestScores(t *testing.T) {
 	if _, err := h.db.Exec(
 		`INSERT INTO proxy_state (ip, port, proto, fails_streak, last_ok_ts,
 			last_checked_ts, first_seen_ts, rel_ema, rt_ema, ok_count, check_count)
-		 VALUES ('1.2.3.4', 8080, 'http', 0, 't', 't', 'first', 0.9, 500, 9, 10)`); err != nil {
+		 VALUES ('1.2.3.4', 8080, 'http', 2, 't', 't', 'first', 0.9, 500, 9, 10)`); err != nil {
 		t.Fatalf("seed row: %v", err)
 	}
 	// a brand new proxy: no rt_ema yet, so speed falls back to NewProxyScore.
@@ -366,6 +366,12 @@ func TestScores(t *testing.T) {
 	if s1.ChecksTotal != 10 || s1.ChecksOK != 9 {
 		t.Errorf("row1 counts = %d/%d, want 10/9", s1.ChecksTotal, s1.ChecksOK)
 	}
+	if s1.AvgResponseMS == nil || *s1.AvgResponseMS != 500 {
+		t.Errorf("row1 AvgResponseMS = %v, want 500", s1.AvgResponseMS)
+	}
+	if s1.FailsStreak != 2 {
+		t.Errorf("row1 FailsStreak = %d, want 2", s1.FailsStreak)
+	}
 
 	// rel_ema NULL -> relEMAv 0, relAll=1/1=1.0 -> rel = 0.3*1.0 = 0.3;
 	// rt_ema NULL -> speed falls back to NewProxyScore (0.5).
@@ -378,6 +384,9 @@ func TestScores(t *testing.T) {
 	}
 	if s2.Quality != 0.15 {
 		t.Errorf("row2 Quality = %v, want 0.15", s2.Quality)
+	}
+	if s2.AvgResponseMS != nil {
+		t.Errorf("row2 AvgResponseMS = %v, want nil", *s2.AvgResponseMS)
 	}
 }
 

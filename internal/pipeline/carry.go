@@ -48,12 +48,14 @@ type prevRecord struct {
 	Hostname          string                   `json:"hostname"`
 	Reputation        *output.ReputationFields `json:"reputation"`
 
-	Reliability *float64 `json:"reliability"`
-	Quality     *float64 `json:"quality"`
-	ChecksTotal int      `json:"checks_total"`
-	ChecksOK    int      `json:"checks_ok"`
-	FirstSeen   *string  `json:"first_seen"`
-	LastSeen    *string  `json:"last_seen"`
+	Reliability   *float64 `json:"reliability"`
+	Quality       *float64 `json:"quality"`
+	ChecksTotal   int      `json:"checks_total"`
+	ChecksOK      int      `json:"checks_ok"`
+	FirstSeen     *string  `json:"first_seen"`
+	LastSeen      *string  `json:"last_seen"`
+	AvgResponseMS *int     `json:"avg_response_ms"`
+	FailsStreak   int      `json:"fails_streak"`
 }
 
 // loadPrevious is main()'s carry-over block: last run's proxies get re-checked
@@ -116,12 +118,14 @@ func loadPrevious(path string, seen map[string]bool) (items []*item, existed boo
 		// them checked. -skip-check preserves them, otherwise they get replaced.
 		if p.Reliability != nil {
 			it.check = &output.CheckFields{
-				Reliability: *p.Reliability,
-				Quality:     deref(p.Quality),
-				ChecksTotal: p.ChecksTotal,
-				ChecksOK:    p.ChecksOK,
-				FirstSeen:   p.FirstSeen,
-				LastSeen:    p.LastSeen,
+				Reliability:   *p.Reliability,
+				Quality:       deref(p.Quality),
+				ChecksTotal:   p.ChecksTotal,
+				ChecksOK:      p.ChecksOK,
+				FirstSeen:     p.FirstSeen,
+				LastSeen:      p.LastSeen,
+				AvgResponseMS: p.AvgResponseMS,
+				FailsStreak:   p.FailsStreak,
 			}
 		}
 		items = append(items, it)

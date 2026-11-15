@@ -8,18 +8,20 @@ import (
 	"github.com/M1noa/proxypool/internal/extract"
 )
 
-// CheckFields is the six history-derived keys write_outputs only emits when
+// CheckFields is the eight history-derived keys write_outputs only emits when
 // checking happened this run - either fresh (main's history phase) or
 // inherited from a carried-over record that already had them from a prior
 // run's json. A nil *CheckFields on a Record means those keys are absent
 // entirely, not null.
 type CheckFields struct {
-	Reliability float64
-	Quality     float64
-	ChecksTotal int
-	ChecksOK    int
-	FirstSeen   *string
-	LastSeen    *string
+	Reliability   float64
+	Quality       float64
+	ChecksTotal   int
+	ChecksOK      int
+	FirstSeen     *string
+	LastSeen      *string
+	AvgResponseMS *int
+	FailsStreak   int
 }
 
 // ReputationFields is what the public threat feeds say about a record's
