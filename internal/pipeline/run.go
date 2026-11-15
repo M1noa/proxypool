@@ -467,16 +467,16 @@ func fillCountries(ctx context.Context, o Options, items []*item) error {
 
 func fillASN(ctx context.Context, o Options, items []*item) error {
 	t0 := time.Now()
-	categories, err := geoip.DownloadASNCategories(ctx, o.Cache)
+	meta, err := geoip.DownloadASNMeta(ctx, o.Cache)
 	if err != nil {
 		return err
 	}
-	o.Logf("ipverse asn categories: %d classified", len(categories))
+	o.Logf("ipverse asn metadata: %d classified", len(meta))
 	path, err := geoip.DownloadASNMMDB(ctx, o.Cache)
 	if err != nil {
 		return err
 	}
-	db, err := geoip.OpenAsnDB(path, categories)
+	db, err := geoip.OpenAsnDB(path, meta)
 	if err != nil {
 		return err
 	}
@@ -485,6 +485,7 @@ func fillASN(ctx context.Context, o Options, items []*item) error {
 	for _, it := range items {
 		info := db.Lookup(it.rec.IP)
 		it.asn, it.asOrg, it.ipType = info.ASN, info.AsOrg, info.IPType
+		it.asnCountry, it.netRole = info.Country, info.Role
 	}
 	o.Logf("asn/ip_type filled in %.1fs", time.Since(t0).Seconds())
 	return nil
@@ -497,6 +498,7 @@ func writeOutputs(ctx context.Context, o Options, items []*item, fetchedPerSourc
 		r := output.FromRecord(it.rec)
 		r.Carried = it.carried
 		r.ASN, r.AsOrg, r.IPType = it.asn, it.asOrg, it.ipType
+		r.ASNCountry, r.NetworkRole = it.asnCountry, it.netRole
 		r.Hostname = it.hostname
 		r.Check = it.check
 		// this run's feeds are authoritative: an address that dropped off every

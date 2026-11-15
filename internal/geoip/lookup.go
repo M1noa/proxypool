@@ -49,25 +49,27 @@ func (g *GeoIP) Country(ip string) string {
 // AsnInfo is AsnDB.lookup's return dict: ASN nil and AsOrg/IPType "" are the
 // python None/"" defaults for a miss or a lookup failure.
 type AsnInfo struct {
-	ASN    *int
-	AsOrg  string
-	IPType string
+	ASN     *int
+	AsOrg   string
+	IPType  string
+	Country string
+	Role    string
 }
 
 // AsnDB wraps the asn-lite mmdb plus the ipverse category map.
 type AsnDB struct {
-	reader     *maxminddb.Reader
-	categories map[int]string
+	reader *maxminddb.Reader
+	meta   map[int]AsnMeta
 }
 
-// OpenAsnDB memory-maps path and pairs it with categories from
-// DownloadASNCategories.
-func OpenAsnDB(path string, categories map[int]string) (*AsnDB, error) {
+// OpenAsnDB memory-maps path and pairs it with the metadata from
+// DownloadASNMeta.
+func OpenAsnDB(path string, meta map[int]AsnMeta) (*AsnDB, error) {
 	r, err := maxminddb.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	return &AsnDB{reader: r, categories: categories}, nil
+	return &AsnDB{reader: r, meta: meta}, nil
 }
 
 func (a *AsnDB) Close() error { return a.reader.Close() }
@@ -93,7 +95,9 @@ func (a *AsnDB) Lookup(ip string) AsnInfo {
 	if rec.ASN != 0 {
 		n := int(rec.ASN)
 		info.ASN = &n
-		info.IPType = a.categories[n]
+		if m, ok := a.meta[n]; ok {
+			info.IPType, info.Country, info.Role = m.Category, m.Country, m.Role
+		}
 	}
 	return info
 }

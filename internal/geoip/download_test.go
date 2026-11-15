@@ -146,31 +146,31 @@ func TestFetchGzipRejectsFakeSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadASNCategoriesCacheHit(t *testing.T) {
+func TestDownloadASNMetaCacheHit(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "ipverse-as-categories.json")
-	seed := `[{"asn":1,"metadata":{"category":"isp"}},{"asn":2,"metadata":{}}]`
+	seed := `[{"asn":1,"metadata":{"category":"isp","countryCode":"NL","networkRole":"access"}},{"asn":2,"metadata":{}}]`
 	if err := os.WriteFile(dest, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
 
 	// no server at all: a cache hit must not make any request.
-	got, err := DownloadASNCategories(context.Background(), dir)
+	got, err := DownloadASNMeta(context.Background(), dir)
 	if err != nil {
-		t.Fatalf("DownloadASNCategories with a warm cache = %v, want nil error", err)
+		t.Fatalf("DownloadASNMeta with a warm cache = %v, want nil error", err)
 	}
-	want := map[int]string{1: "isp"}
-	if len(got) != len(want) || got[1] != "isp" {
-		t.Errorf("categories = %v, want %v", got, want)
+	want := map[int]AsnMeta{1: {"isp", "NL", "access"}}
+	if len(got) != len(want) || got[1] != want[1] {
+		t.Errorf("meta = %v, want %v", got, want)
 	}
 }
 
-func TestDownloadASNCategoriesStreamDecode(t *testing.T) {
+func TestDownloadASNMetaStreamDecode(t *testing.T) {
 	entries := []map[string]any{
-		{"asn": 1, "metadata": map[string]any{"category": "isp"}},
+		{"asn": 1, "metadata": map[string]any{"category": "isp", "countryCode": "NL", "networkRole": "access"}},
 		{"asn": 2, "metadata": map[string]any{"category": ""}},
 		{"asn": 3, "metadata": map[string]any{}},
-		{"asn": 4, "metadata": map[string]any{"category": "business"}},
+		{"asn": 4, "metadata": map[string]any{"category": "business", "countryCode": "US"}},
 	}
 	raw, err := json.Marshal(entries)
 	if err != nil {
@@ -188,22 +188,25 @@ func TestDownloadASNCategoriesStreamDecode(t *testing.T) {
 	asnMetaURL = srv.URL
 	defer func() { asnMetaURL = orig }()
 
-	got, err := DownloadASNCategories(context.Background(), dir)
+	got, err := DownloadASNMeta(context.Background(), dir)
 	if err != nil {
-		t.Fatalf("DownloadASNCategories: %v", err)
+		t.Fatalf("DownloadASNMeta: %v", err)
 	}
-	want := map[int]string{1: "isp", 4: "business"}
+	want := map[int]AsnMeta{
+		1: {"isp", "NL", "access"},
+		4: {"business", "US", ""},
+	}
 	if len(got) != len(want) {
-		t.Fatalf("categories = %v, want %v", got, want)
+		t.Fatalf("meta = %v, want %v", got, want)
 	}
 	for k, v := range want {
 		if got[k] != v {
-			t.Errorf("categories[%d] = %q, want %q", k, got[k], v)
+			t.Errorf("meta[%d] = %+v, want %+v", k, got[k], v)
 		}
 	}
 }
 
-func TestDownloadASNCategoriesHTTPError(t *testing.T) {
+func TestDownloadASNMetaHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -214,7 +217,7 @@ func TestDownloadASNCategoriesHTTPError(t *testing.T) {
 	asnMetaURL = srv.URL
 	defer func() { asnMetaURL = orig }()
 
-	if _, err := DownloadASNCategories(context.Background(), dir); err == nil {
-		t.Error("DownloadASNCategories against a 500 = nil error, want an error")
+	if _, err := DownloadASNMeta(context.Background(), dir); err == nil {
+		t.Error("DownloadASNMeta against a 500 = nil error, want an error")
 	}
 }

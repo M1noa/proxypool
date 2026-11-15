@@ -17,13 +17,15 @@ type item struct {
 	asn        *int
 	asOrg      string
 	ipType     string
+	asnCountry string
+	netRole    string
 	hostname   string
 	reputation *output.ReputationFields
 	check      *output.CheckFields
 }
 
 // prevRecord is one entry of a previous run's proxies.json. the schema is
-// closed - this program wrote the file - so the 15 always-present keys, the
+// closed - this program wrote the file - so the 18 always-present keys, the
 // optional reputation block and the 6 the checker phase adds cover it exactly.
 type prevRecord struct {
 	IP                string                   `json:"ip"`
@@ -41,6 +43,8 @@ type prevRecord struct {
 	ASN               *int                     `json:"asn"`
 	AsOrg             string                   `json:"as_org"`
 	IPType            string                   `json:"ip_type"`
+	ASNCountry        string                   `json:"asn_country"`
+	NetworkRole       string                   `json:"network_role"`
 	Hostname          string                   `json:"hostname"`
 	Reputation        *output.ReputationFields `json:"reputation"`
 
@@ -106,6 +110,7 @@ func loadPrevious(path string, seen map[string]bool) (items []*item, existed boo
 			rec.SourceMeta = map[string]any{}
 		}
 		it := &item{rec: rec, carried: true, asn: p.ASN, asOrg: p.AsOrg, ipType: p.IPType,
+			asnCountry: p.ASNCountry, netRole: p.NetworkRole,
 			hostname: p.Hostname, reputation: p.Reputation}
 		// the 6 score keys travel together: present only if the run that wrote
 		// them checked. -skip-check preserves them, otherwise they get replaced.

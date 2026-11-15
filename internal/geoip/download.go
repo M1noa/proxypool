@@ -104,11 +104,22 @@ func fetchGzip(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(gz)
 }
 
-// DownloadASNCategories is download_asn_categories: asn -> category from
-// ipverse's cc0 as-metadata dataset. the cached as.json is ~69mb, so it is
-// stream-decoded token by token instead of slurped into one parsed tree the
-// way python's json.loads(dest.read_text()) does.
-func DownloadASNCategories(ctx context.Context, cacheDir string) (map[int]string, error) {
+// AsnMeta is what ipverse's cc0 as-metadata dataset says about one operator.
+// the category is already a hosting/isp/business classification; the country is
+// where the operator registered, which is not where its addresses geolocate, and
+// the role separates eyeball networks from transit. only the category was
+// published before, and the file is downloaded either way.
+type AsnMeta struct {
+	Category string
+	Country  string
+	Role     string
+}
+
+// DownloadASNMeta is download_asn_categories: asn -> AsnMeta from ipverse's cc0
+// as-metadata dataset. the cached as.json is ~69mb, so it is stream-decoded
+// token by token instead of slurped into one parsed tree the way python's
+// json.loads(dest.read_text()) does.
+func DownloadASNMeta(ctx context.Context, cacheDir string) (map[int]AsnMeta, error) {
 	dest := filepath.Join(cacheDir, "ipverse-as-categories.json")
 	if _, err := os.Stat(dest); err != nil {
 		if err := downloadASJSON(ctx, dest); err != nil {
@@ -126,22 +137,25 @@ func DownloadASNCategories(ctx context.Context, cacheDir string) (map[int]string
 	if _, err := dec.Token(); err != nil { // consume the opening '['
 		return nil, err
 	}
-	categories := map[int]string{}
+	meta := map[int]AsnMeta{}
 	for dec.More() {
 		var entry struct {
 			ASN      int `json:"asn"`
 			Metadata struct {
-				Category string `json:"category"`
+				Category    string `json:"category"`
+				CountryCode string `json:"countryCode"`
+				NetworkRole string `json:"networkRole"`
 			} `json:"metadata"`
 		}
 		if err := dec.Decode(&entry); err != nil {
 			return nil, err
 		}
-		if entry.Metadata.Category != "" {
-			categories[entry.ASN] = entry.Metadata.Category
+		m := AsnMeta{entry.Metadata.Category, entry.Metadata.CountryCode, entry.Metadata.NetworkRole}
+		if m.Category != "" || m.Country != "" || m.Role != "" {
+			meta[entry.ASN] = m
 		}
 	}
-	return categories, nil
+	return meta, nil
 }
 
 // downloadASJSON streams the response straight to disk (via a temp file plus

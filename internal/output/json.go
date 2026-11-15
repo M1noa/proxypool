@@ -75,6 +75,8 @@ func recordPairs(dst []kv, r *Record) []kv {
 		kv{"asn", derefAny(r.ASN)},
 		kv{"as_org", r.AsOrg},
 		kv{"ip_type", r.IPType},
+		kv{"asn_country", r.ASNCountry},
+		kv{"network_role", r.NetworkRole},
 		kv{"hostname", r.Hostname},
 	)
 	if p := r.Reputation; p != nil {

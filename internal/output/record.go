@@ -59,6 +59,8 @@ type Record struct {
 	ASN               *int
 	AsOrg             string
 	IPType            string
+	ASNCountry        string
+	NetworkRole       string
 	Hostname          string
 	Reputation        *ReputationFields
 	Check             *CheckFields

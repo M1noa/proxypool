@@ -115,11 +115,11 @@ func runGeoIP(ctx context.Context, argv []string) error {
 	}
 	fmt.Println("country mmdb:", country)
 
-	categories, err := geoip.DownloadASNCategories(ctx, *cache)
+	meta, err := geoip.DownloadASNMeta(ctx, *cache)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("ipverse asn categories: %d classified\n", len(categories))
+	fmt.Printf("ipverse asn metadata: %d classified\n", len(meta))
 
 	asn, err := geoip.DownloadASNMMDB(ctx, *cache)
 	if err != nil {

@@ -15,7 +15,7 @@ func TestGeoIPCountryInvalidIP(t *testing.T) {
 }
 
 func TestAsnDBLookupInvalidIP(t *testing.T) {
-	a := &AsnDB{} // nil reader and nil categories: same early-return contract
+	a := &AsnDB{} // nil reader and nil meta: same early-return contract
 	got := a.Lookup("not-an-ip")
 	if got.ASN != nil || got.AsOrg != "" || got.IPType != "" {
 		t.Errorf("Lookup(%q) = %+v, want the zero value", "not-an-ip", got)
