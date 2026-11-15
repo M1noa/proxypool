@@ -151,9 +151,9 @@ func Run(ctx context.Context, o Options) error {
 		if err != nil {
 			logf("reputation: %v, continuing without", err)
 		} else {
-			ipsumN, fraudN := rep.Len()
-			logf("reputation: %d ipsum, %d ffrraud addresses in %.1fs",
-				ipsumN, fraudN, time.Since(t0).Seconds())
+			ipsumN, fraudN, dropN, asnN := rep.Len()
+			logf("reputation: %d ipsum, %d ffrraud addresses, %d spamhaus netblocks, %d spamhaus asns in %.1fs",
+				ipsumN, fraudN, dropN, asnN, time.Since(t0).Seconds())
 		}
 	}
 
@@ -357,7 +357,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 		}
 		hist = nil
 		for _, it := range kept {
-			it.check = blendScores(it.rec, scores, rep)
+			it.check = blendScores(it.rec, asnValue(it.asn), scores, rep)
 		}
 		logf("history: %d proto states scored, %d pruned in %.1fs",
 			len(scores), pruned, time.Since(t0).Seconds())
@@ -374,7 +374,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 // opinions about an address, while reliability and speed are our own
 // measurement of it, so a fast, answering proxy that some feed dislikes sinks in
 // the sort order without being thrown out of the pool.
-func blendScores(r *extract.Record, scores map[history.Key]history.Score, rep *reputation.Feed) *output.CheckFields {
+func blendScores(r *extract.Record, asn int, scores map[history.Key]history.Score, rep *reputation.Feed) *output.CheckFields {
 	// accumulated in one pass: gathering the matches into a slice first cost a
 	// heap allocation per record for at most four values, read once
 	f := &output.CheckFields{}
@@ -400,10 +400,19 @@ func blendScores(r *extract.Record, scores map[history.Key]history.Score, rep *r
 		f.Reliability = pyfmt.RoundN(rel/float64(n), 4)
 		f.Quality = pyfmt.RoundN(qual/float64(n), 4)
 	}
-	if e, ok := rep.Entry(r.IP); ok {
+	if e, ok := rep.Entry(r.IP, asn); ok {
 		f.Quality = pyfmt.RoundN(f.Quality*e.QualityFactor(), 4)
 	}
 	return f
+}
+
+// asnValue dereferences an optional asn for the reputation lookup, which reads
+// 0 as "not resolved" and skips the ASN-DROP half.
+func asnValue(a *int) int {
+	if a == nil {
+		return 0
+	}
+	return *a
 }
 
 // minTS and maxTS skip nils. python would raise on a mix of None and str, but
@@ -492,13 +501,15 @@ func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sou
 		// list loses the block rather than keeping last run's verdict. only a run
 		// with no feed at all falls back to what the previous run published.
 		if rep != nil {
-			if e, ok := rep.Entry(it.rec.IP); ok {
+			if e, ok := rep.Entry(it.rec.IP, asnValue(it.asn)); ok {
 				r.Reputation = &output.ReputationFields{
 					Blacklists:    e.Blacklists,
 					FraudScore:    e.FraudScore,
 					FraudReports:  e.FraudReports,
 					FraudCategory: e.FraudCategory,
 					FraudType:     e.FraudType,
+					SpamhausDrop:  e.SpamhausDrop,
+					SpamhausASN:   e.SpamhausASN,
 				}
 			}
 		} else {

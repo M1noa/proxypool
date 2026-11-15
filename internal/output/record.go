@@ -23,15 +23,18 @@ type CheckFields struct {
 }
 
 // ReputationFields is what the public threat feeds say about a record's
-// address: ipsum's count of blacklists reporting it, and ffrraud's fraud
-// score, independent confirmations, category and infrastructure type. absent
-// (nil) means neither feed lists the address, which is the common case.
+// address: ipsum's count of blacklists reporting it, ffrraud's fraud score,
+// independent confirmations, category and infrastructure type, and whether
+// Spamhaus has the address's netblock or operator on DROP or ASN-DROP. absent
+// (nil) means no feed lists the address, which is the common case.
 type ReputationFields struct {
 	Blacklists    int    `json:"blacklists"`
 	FraudScore    int    `json:"fraud_score"`
 	FraudReports  int    `json:"fraud_reports"`
 	FraudCategory string `json:"fraud_category"`
 	FraudType     string `json:"fraud_type"`
+	SpamhausDrop  bool   `json:"spamhaus_drop"`
+	SpamhausASN   bool   `json:"spamhaus_asn_drop"`
 }
 
 // Record is one write_outputs record: extract.Record plus whatever geoip/asn

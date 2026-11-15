@@ -1,9 +1,10 @@
-// package reputation tracks two public threat feeds in one compact lookup
-// table: how many blacklists stamparm/ipsum reports an address on, and
+// package reputation tracks three public threat feeds in one compact lookup
+// table: how many blacklists stamparm/ipsum reports an address on,
 // FFRaud-com/ip-fraud-database's 0-100 score, confirmation count, category and
-// infrastructure type.
+// infrastructure type, and Spamhaus's DROP and ASN-DROP lists of netblocks and
+// operators they have tied to spam and cybercrime.
 //
-// neither feed is a proxy source, so none of this is merged into the records
+// none of these is a proxy source, so none of it is merged into the records
 // themselves. a run loads the feeds once, attaches what they say about an
 // address to that record, and scales the record's quality down by a bounded
 // factor. a feed is someone else's opinion about an address, not a measurement
@@ -11,16 +12,17 @@
 // the proxy: the record still answered our own probe, and that is the part we
 // can see for ourselves.
 //
-// both files are re-downloaded every run and kept in the cache dir. a failed
+// every file is re-downloaded each run and kept in the cache dir. a failed
 // download falls back to the cached copy, so an upstream outage degrades to
-// slightly stale data rather than no data, and only a run with neither warns
-// and carries on without the fields.
+// slightly stale data rather than no data, and only a run with nothing at all
+// warns and carries on without the fields.
 package reputation
 
 import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -28,16 +30,24 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// the two feeds. vars rather than consts only so tests can point them at an
+// the feeds. vars rather than consts only so tests can point them at an
 // httptest server instead of the real upstream.
+//
+// EDROP is not listed separately: Spamhaus folded it into drop.txt, and the old
+// edrop.txt url now serves only that note. ASN-DROP's plain-text variant is
+// gone too, replaced by a newline-delimited json file.
 var (
-	ipsumURL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
-	fraudURL = "https://raw.githubusercontent.com/FFraud-com/ip-fraud-database/main/threat-ips/confirmed-abusive.csv"
+	ipsumURL   = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
+	fraudURL   = "https://raw.githubusercontent.com/FFraud-com/ip-fraud-database/main/threat-ips/confirmed-abusive.csv"
+	dropURL    = "https://www.spamhaus.org/drop/drop.txt"
+	dropv6URL  = "https://www.spamhaus.org/drop/dropv6.txt"
+	asnDropURL = "https://www.spamhaus.org/drop/asndrop.json"
 )
 
 const (
@@ -57,6 +67,12 @@ const (
 	// maxPenalty caps how much the feeds may take off a record's quality. they
 	// move the score, they do not override the probe.
 	maxPenalty = 0.30
+
+	// dropRisk and asnRisk are how strongly Spamhaus's two lists count on their
+	// own. DROP names the netblock itself, so it stands at full weight; ASN-DROP
+	// names the operator, which says less about one address inside a large asn.
+	dropRisk = 1.0
+	asnRisk  = 0.7
 
 	// packed value layout inside Feed's maps. one uint32 per address instead of
 	// a struct: 1.65m entries is the difference between ~30mb and ~150mb of heap
@@ -105,26 +121,35 @@ func indexOf(table []string) map[string]uint32 {
 	return m
 }
 
-// Entry is what the two feeds say about one address. the zero Entry means
-// neither of them lists it.
+// Entry is what the feeds say about one address. the zero Entry means none of
+// them lists it.
 type Entry struct {
 	Blacklists    int    `json:"blacklists"`
 	FraudScore    int    `json:"fraud_score"`
 	FraudReports  int    `json:"fraud_reports"`
 	FraudCategory string `json:"fraud_category"`
 	FraudType     string `json:"fraud_type"`
+	SpamhausDrop  bool   `json:"spamhaus_drop"`
+	SpamhausASN   bool   `json:"spamhaus_asn_drop"`
 }
 
 // Risk is the 0..1 strength of the hostile signals, combined so that being on
-// many blacklists and being scored badly by ffrraud reinforce each other
-// without either one alone reaching 1.
+// many blacklists, being scored badly by ffrraud and sitting in a Spamhaus
+// netblock reinforce each other without any one alone reaching 1.
 func (e Entry) Risk() float64 {
-	if e.Blacklists == 0 && e.FraudScore == 0 {
+	if e.Blacklists == 0 && e.FraudScore == 0 && !e.SpamhausDrop && !e.SpamhausASN {
 		return 0
 	}
 	listRisk := math.Min(1, float64(e.Blacklists)/listCap)
 	fraudRisk := math.Min(1, float64(e.FraudScore)/100)
-	return 1 - (1-listRisk)*(1-fraudRisk)
+	var netRisk float64
+	switch {
+	case e.SpamhausDrop:
+		netRisk = dropRisk
+	case e.SpamhausASN:
+		netRisk = asnRisk
+	}
+	return 1 - (1-listRisk)*(1-fraudRisk)*(1-netRisk)
 }
 
 // QualityFactor is the multiplier a record's quality is scaled by: exactly 1
@@ -134,38 +159,76 @@ func (e Entry) QualityFactor() float64 {
 	return 1 - maxPenalty*e.Risk()
 }
 
-// Feed is both datasets in one table, keyed by address.
+// Feed is every dataset in one table, keyed by address.
+//
+// ipsum and ffrraud publish addresses, so they fold into the two maps. Spamhaus
+// publishes netblocks and asns instead, which cannot be expanded to addresses,
+// so DROP stays a range table searched at lookup time and ASN-DROP a set.
 type Feed struct {
 	v4 map[uint32]uint32
 	v6 map[[16]byte]uint32
 
+	drop4 []netRange
+	drop6 []netip.Prefix
+	asn   map[uint32]struct{}
+
 	ipsumN int
 	fraudN int
+	dropN  int
+	asnN   int
 }
 
-// Len reports how many addresses each feed contributed.
-func (f *Feed) Len() (ipsum, fraud int) {
+// netRange is one Spamhaus DROP netblock as an inclusive ipv4 interval. ranges
+// are coalesced at load, so lookups are a single binary search.
+type netRange struct{ lo, hi uint64 }
+
+// Len reports how many rows each feed contributed: addresses for ipsum and
+// ffrraud, netblocks for drop, asns for asn-drop.
+func (f *Feed) Len() (ipsum, fraud, drop, asn int) {
 	if f == nil {
-		return 0, 0
+		return 0, 0, 0, 0
 	}
-	return f.ipsumN, f.fraudN
+	return f.ipsumN, f.fraudN, f.dropN, f.asnN
 }
 
-// Entry looks an address up. it is safe on a nil Feed, which is how a run that
-// could not reach either feed keeps the call sites free of nil checks.
-func (f *Feed) Entry(ip string) (Entry, bool) {
-	if f == nil || len(f.v4) == 0 && len(f.v6) == 0 {
+// Entry looks an address up. asn may be 0 when the caller has not resolved one;
+// it is what makes the ASN-DROP half of the answer possible. Entry is safe on a
+// nil Feed, which is how a run that reached no feed keeps the call sites free of
+// nil checks.
+func (f *Feed) Entry(ip string, asn int) (Entry, bool) {
+	if f == nil {
 		return Entry{}, false
 	}
 	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
 	if err != nil {
 		return Entry{}, false
 	}
-	v, ok := f.get(addr)
-	if !ok {
+	v, listed := f.get(addr)
+	e := decode(v)
+	e.SpamhausDrop = f.inDrop(addr)
+	if asn > 0 {
+		_, e.SpamhausASN = f.asn[uint32(asn)]
+	}
+	if !listed && !e.SpamhausDrop && !e.SpamhausASN {
 		return Entry{}, false
 	}
-	return decode(v), true
+	return e, true
+}
+
+// inDrop reports whether addr is inside a Spamhaus DROP netblock. the ipv4
+// ranges are coalesced and sorted, so this is one binary search; the ipv6 list
+// is a few dozen prefixes and is simply scanned.
+func (f *Feed) inDrop(addr netip.Addr) bool {
+	if k, ok := addr4(addr); ok {
+		i := sort.Search(len(f.drop4), func(i int) bool { return f.drop4[i].hi >= uint64(k) })
+		return i < len(f.drop4) && f.drop4[i].lo <= uint64(k)
+	}
+	for _, p := range f.drop6 {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *Feed) get(addr netip.Addr) (uint32, bool) {
@@ -226,32 +289,38 @@ func decode(v uint32) Entry {
 	}
 }
 
-// Load downloads both feeds, parses them, and returns the merged table. It only
-// returns an error when neither feed produced a single row, which the pipeline
-// treats as a warning: the proxies are still worth publishing without this.
+// Load downloads every feed, parses them, and returns the merged table. It only
+// returns an error when nothing at all produced a row, which the pipeline treats
+// as a warning: the proxies are still worth publishing without this.
 func Load(ctx context.Context, cacheDir string) (*Feed, error) {
 	f := &Feed{}
 	var problems []string
 
-	ipsumPath, err := refresh(ctx, ipsumURL, filepath.Join(cacheDir, "ipsum.txt"))
-	if err != nil {
-		problems = append(problems, "ipsum: "+err.Error())
-	} else if n, err := f.parseIpsum(ipsumPath); err != nil {
-		problems = append(problems, "ipsum: "+err.Error())
-	} else {
-		f.ipsumN = n
+	// each feed is independent: one dead upstream leaves the others' data
+	// intact and only loses its own signal.
+	load := func(name, url, file string, parse func(string) (int, error)) int {
+		path, err := refresh(ctx, url, filepath.Join(cacheDir, file))
+		if err != nil {
+			problems = append(problems, name+": "+err.Error())
+			return 0
+		}
+		n, err := parse(path)
+		if err != nil {
+			problems = append(problems, name+": "+err.Error())
+			return 0
+		}
+		return n
 	}
 
-	fraudPath, err := refresh(ctx, fraudURL, filepath.Join(cacheDir, "ffraud-confirmed-abusive.csv"))
-	if err != nil {
-		problems = append(problems, "ffraud: "+err.Error())
-	} else if n, err := f.parseFraud(fraudPath); err != nil {
-		problems = append(problems, "ffraud: "+err.Error())
-	} else {
-		f.fraudN = n
-	}
+	f.ipsumN = load("ipsum", ipsumURL, "ipsum.txt", f.parseIpsum)
+	f.fraudN = load("ffraud", fraudURL, "ffraud-confirmed-abusive.csv", f.parseFraud)
+	f.dropN = load("spamhaus drop", dropURL, "spamhaus-drop.txt", f.parseDrop)
+	// the ipv6 half shares drop's budget: it is the same list, and a v6 file
+	// that fails should not read as "no drop data" when the v4 one loaded.
+	f.dropN += load("spamhaus drop v6", dropv6URL, "spamhaus-dropv6.txt", f.parseDrop6)
+	f.asnN = load("spamhaus asn-drop", asnDropURL, "spamhaus-asndrop.json", f.parseASNDrop)
 
-	if f.ipsumN == 0 && f.fraudN == 0 {
+	if f.ipsumN == 0 && f.fraudN == 0 && f.dropN == 0 && f.asnN == 0 {
 		return nil, fmt.Errorf("no threat feed loaded (%s)", strings.Join(problems, "; "))
 	}
 	return f, nil
@@ -380,6 +449,89 @@ func (f *Feed) parseFraud(path string) (int, error) {
 		}
 		return f.put(addr, v)
 	})
+}
+
+// parseDrop reads Spamhaus DROP's "cidr ; SBLref" rows into coalesced ipv4
+// ranges. the comment header splits to an empty cidr and is skipped.
+func (f *Feed) parseDrop(path string) (int, error) {
+	var ranges []netRange
+	n, err := eachLine(path, func(line string) bool {
+		pfx, ok := parseDropLine(line)
+		if !ok || !pfx.Addr().Is4() {
+			return false
+		}
+		b := pfx.Addr().As4()
+		size := uint64(1) << (32 - pfx.Bits())
+		lo := uint64(binary.BigEndian.Uint32(b[:])) &^ (size - 1)
+		ranges = append(ranges, netRange{lo: lo, hi: lo + size - 1})
+		return true
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// DROP itself is already merged, but coalescing costs nothing and makes the
+	// "no two ranges overlap" assumption the binary search relies on ours.
+	sort.Slice(ranges, func(i, j int) bool { return ranges[i].lo < ranges[j].lo })
+	merged := ranges[:0]
+	for _, r := range ranges {
+		if n := len(merged); n > 0 && r.lo <= merged[n-1].hi+1 {
+			merged[n-1].hi = max(merged[n-1].hi, r.hi)
+			continue
+		}
+		merged = append(merged, r)
+	}
+	f.drop4 = merged
+	return n, nil
+}
+
+// parseDrop6 is parseDrop for the ipv6 list, kept as prefixes because a /32
+// netblock does not fit an interval.
+func (f *Feed) parseDrop6(path string) (int, error) {
+	var pfx []netip.Prefix
+	n, err := eachLine(path, func(line string) bool {
+		p, ok := parseDropLine(line)
+		if !ok || p.Addr().Is4() {
+			return false
+		}
+		pfx = append(pfx, p.Masked())
+		return true
+	})
+	f.drop6 = pfx
+	return n, err
+}
+
+// parseDropLine pulls the cidr off a "; SBLref"-suffixed DROP row.
+func parseDropLine(line string) (netip.Prefix, bool) {
+	cidr := strings.TrimSpace(strings.SplitN(line, ";", 2)[0])
+	if cidr == "" {
+		return netip.Prefix{}, false
+	}
+	p, err := netip.ParsePrefix(cidr)
+	return p, err == nil
+}
+
+// parseASNDrop reads ASN-DROP, one json object per line. the file ends with a
+// metadata object that carries no asn, so a row without a positive one is
+// skipped along with anything unparseable.
+func (f *Feed) parseASNDrop(path string) (int, error) {
+	set := make(map[uint32]struct{}, 1<<10)
+	var rec struct {
+		ASN int `json:"asn"`
+	}
+	n, err := eachLine(path, func(line string) bool {
+		if line == "" || line[0] == ';' {
+			return false
+		}
+		rec.ASN = 0
+		if err := json.Unmarshal([]byte(line), &rec); err != nil || rec.ASN <= 0 {
+			return false
+		}
+		set[uint32(rec.ASN)] = struct{}{}
+		return true
+	})
+	f.asn = set
+	return n, err
 }
 
 // eachLine streams path line by line, calling fn with the line minus its

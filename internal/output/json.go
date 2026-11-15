@@ -140,6 +140,8 @@ func reputationPairs(p *ReputationFields) []kv {
 		{"fraud_reports", p.FraudReports},
 		{"fraud_category", p.FraudCategory},
 		{"fraud_type", p.FraudType},
+		{"spamhaus_drop", p.SpamhausDrop},
+		{"spamhaus_asn_drop", p.SpamhausASN},
 	}
 }
 

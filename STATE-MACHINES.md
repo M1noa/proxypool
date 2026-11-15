@@ -166,7 +166,7 @@ requirements differ:
 
 | input | fresh | stale allowed | absent |
 |---|---|---|---|
-| reputation feeds | always re-downloaded | yes, cached file if download fails | both feeds empty → warn, run without `reputation` block |
+| reputation feeds | always re-downloaded | yes, cached file if download fails | every feed empty → warn, run without `reputation` block |
 | geoip/asn snapshots | cache hit is enough (monthly upstream) | no — current month then previous month, else error | check phase aborts |
 | uagen inputs | fetched every run, 3 min cap | no | warn, that browser family drops out, run continues |
 
