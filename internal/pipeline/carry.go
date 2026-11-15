@@ -17,6 +17,7 @@ type item struct {
 	asn        *int
 	asOrg      string
 	ipType     string
+	hostname   string
 	reputation *output.ReputationFields
 	check      *output.CheckFields
 }
@@ -40,6 +41,7 @@ type prevRecord struct {
 	ASN               *int                     `json:"asn"`
 	AsOrg             string                   `json:"as_org"`
 	IPType            string                   `json:"ip_type"`
+	Hostname          string                   `json:"hostname"`
 	Reputation        *output.ReputationFields `json:"reputation"`
 
 	Reliability *float64 `json:"reliability"`
@@ -103,7 +105,8 @@ func loadPrevious(path string, seen map[string]bool) (items []*item, existed boo
 		if rec.SourceMeta == nil {
 			rec.SourceMeta = map[string]any{}
 		}
-		it := &item{rec: rec, carried: true, asn: p.ASN, asOrg: p.AsOrg, ipType: p.IPType, reputation: p.Reputation}
+		it := &item{rec: rec, carried: true, asn: p.ASN, asOrg: p.AsOrg, ipType: p.IPType,
+			hostname: p.Hostname, reputation: p.Reputation}
 		// the 6 score keys travel together: present only if the run that wrote
 		// them checked. -skip-check preserves them, otherwise they get replaced.
 		if p.Reliability != nil {

@@ -12,7 +12,7 @@ func TestEncodeEmpty(t *testing.T) {
 	}
 }
 
-func TestEncodeFifteenKeysNoCheck(t *testing.T) {
+func TestEncodeSixteenKeysNoCheck(t *testing.T) {
 	rt := 123
 	r := &Record{
 		IP: "1.2.3.4", IPVersion: "4", Port: 8080,
@@ -46,7 +46,8 @@ func TestEncodeFifteenKeysNoCheck(t *testing.T) {
     "response_time_raw_ms": null,
     "asn": null,
     "as_org": "",
-    "ip_type": ""
+    "ip_type": "",
+    "hostname": ""
   }
 ]`
 	if got != want {

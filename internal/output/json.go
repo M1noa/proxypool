@@ -75,6 +75,7 @@ func recordPairs(dst []kv, r *Record) []kv {
 		kv{"asn", derefAny(r.ASN)},
 		kv{"as_org", r.AsOrg},
 		kv{"ip_type", r.IPType},
+		kv{"hostname", r.Hostname},
 	)
 	if p := r.Reputation; p != nil {
 		pairs = append(pairs, kv{"reputation", p})

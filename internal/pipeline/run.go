@@ -227,7 +227,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	t0 := time.Now()
-	n, err := writeOutputs(o, items, fetchedPerSource, sources, rep)
+	n, err := writeOutputs(ctx, o, items, fetchedPerSource, sources, rep)
 	if err != nil {
 		return err
 	}
@@ -491,12 +491,13 @@ func fillASN(ctx context.Context, o Options, items []*item) error {
 }
 
 // writeOutputs is write_outputs: sort, serialize, and refresh the readme.
-func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sources []config.Source, rep *reputation.Feed) (int, error) {
+func writeOutputs(ctx context.Context, o Options, items []*item, fetchedPerSource map[string]int, sources []config.Source, rep *reputation.Feed) (int, error) {
 	recs := make([]*output.Record, len(items))
 	for i, it := range items {
 		r := output.FromRecord(it.rec)
 		r.Carried = it.carried
 		r.ASN, r.AsOrg, r.IPType = it.asn, it.asOrg, it.ipType
+		r.Hostname = it.hostname
 		r.Check = it.check
 		// this run's feeds are authoritative: an address that dropped off every
 		// list loses the block rather than keeping last run's verdict. only a run
@@ -520,6 +521,9 @@ func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sou
 			r.Reputation = it.reputation
 		}
 		recs[i] = r
+	}
+	if !o.DryRun {
+		resolveHostnames(ctx, recs, o.Logf)
 	}
 	output.SortRecords(recs)
 	if o.DryRun {
