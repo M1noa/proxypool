@@ -64,15 +64,22 @@ const (
 	// on scoring full marks.
 	listCap = 6
 
-	// maxPenalty caps how much the feeds may take off a record's quality. they
+	// maxPenalty caps the aggregate feeds' weight on a record's quality. they
 	// move the score, they do not override the probe.
 	maxPenalty = 0.30
 
-	// dropRisk and asnRisk are how strongly Spamhaus's two lists count on their
-	// own. DROP names the netblock itself, so it stands at full weight; ASN-DROP
-	// names the operator, which says less about one address inside a large asn.
+	// netPenalty is Spamhaus's weight, and it is meant to bite. ipsum and ffrraud
+	// are vote counts; DROP is Spamhaus stating that the netblock was leased to
+	// someone it has tied to spam or cybercrime, which is a different kind of
+	// claim and earns a heavier one. the two penalties compose, so the worst case
+	// lands near 0.385 rather than at either cap alone.
+	netPenalty = 0.45
+
+	// dropRisk and asnRisk are how much of netPenalty each list commands. DROP
+	// names the netblock itself, so it stands at full weight; ASN-DROP names the
+	// operator, which says less about one address inside a large asn.
 	dropRisk = 1.0
-	asnRisk  = 0.7
+	asnRisk  = 0.6
 
 	// packed value layout inside Feed's maps. one uint32 per address instead of
 	// a struct: 1.65m entries is the difference between ~30mb and ~150mb of heap
@@ -133,30 +140,36 @@ type Entry struct {
 	SpamhausASN   bool   `json:"spamhaus_asn_drop"`
 }
 
-// Risk is the 0..1 strength of the hostile signals, combined so that being on
-// many blacklists, being scored badly by ffrraud and sitting in a Spamhaus
-// netblock reinforce each other without any one alone reaching 1.
+// Risk is the 0..1 strength of the aggregate feeds' signals, combined so that
+// being on many blacklists and being scored badly by ffrraud reinforce each
+// other without either one alone reaching 1.
 func (e Entry) Risk() float64 {
-	if e.Blacklists == 0 && e.FraudScore == 0 && !e.SpamhausDrop && !e.SpamhausASN {
+	if e.Blacklists == 0 && e.FraudScore == 0 {
 		return 0
 	}
 	listRisk := math.Min(1, float64(e.Blacklists)/listCap)
 	fraudRisk := math.Min(1, float64(e.FraudScore)/100)
-	var netRisk float64
-	switch {
-	case e.SpamhausDrop:
-		netRisk = dropRisk
-	case e.SpamhausASN:
-		netRisk = asnRisk
-	}
-	return 1 - (1-listRisk)*(1-fraudRisk)*(1-netRisk)
+	return 1 - (1-listRisk)*(1-fraudRisk)
 }
 
-// QualityFactor is the multiplier a record's quality is scaled by: exactly 1
-// for an address the feeds do not list, down to 1-maxPenalty for the worst
-// case (6+ blacklists and a 100 fraud score).
+// NetRisk is the 0..1 strength of the Spamhaus signals on their own, and is
+// scored separately from Risk so that a netblock listing is not diluted by
+// whatever the vote-count feeds happen to say.
+func (e Entry) NetRisk() float64 {
+	switch {
+	case e.SpamhausDrop:
+		return dropRisk
+	case e.SpamhausASN:
+		return asnRisk
+	}
+	return 0
+}
+
+// QualityFactor is the multiplier a record's quality is scaled by. exactly 1 for
+// an address no feed lists; at worst (1-maxPenalty)*(1-netPenalty) for one that
+// is on every aggregate list and inside a DROP netblock.
 func (e Entry) QualityFactor() float64 {
-	return 1 - maxPenalty*e.Risk()
+	return (1 - maxPenalty*e.Risk()) * (1 - netPenalty*e.NetRisk())
 }
 
 // Feed is every dataset in one table, keyed by address.

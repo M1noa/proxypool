@@ -369,11 +369,12 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 // sums their counters, and takes the outer bounds of their timestamps. a record
 // with no scored protocol is treated as brand new.
 //
-// the threat feeds then scale quality by at most reputation.maxPenalty. that is
-// a weighting, not a veto: blacklists and a fraud score are other people's
-// opinions about an address, while reliability and speed are our own
-// measurement of it, so a fast, answering proxy that some feed dislikes sinks in
-// the sort order without being thrown out of the pool.
+// the threat feeds then scale quality down. that is a weighting, not a veto:
+// blacklists and a fraud score are other people's opinions about an address,
+// while reliability and speed are our own measurement of it, so a fast,
+// answering proxy that some feed dislikes sinks in the sort order without being
+// thrown out of the pool. Spamhaus is weighted separately and harder, since a
+// DROP netblock is a statement about who leased it rather than a vote count.
 func blendScores(r *extract.Record, asn int, scores map[history.Key]history.Score, rep *reputation.Feed) *output.CheckFields {
 	// accumulated in one pass: gathering the matches into a slice first cost a
 	// heap allocation per record for at most four values, read once

@@ -177,17 +177,26 @@ func TestQualityFactorBounds(t *testing.T) {
 	if got := (Entry{Blacklists: 1}).QualityFactor(); math.Abs(got-0.95) > 1e-9 {
 		t.Errorf("1 blacklist factor = %v, want 0.95", got)
 	}
-	// listCap blacklists saturates the blacklist signal on its own
+	// listCap blacklists saturates the aggregate signal on its own
 	if got := (Entry{Blacklists: 6}).QualityFactor(); math.Abs(got-(1-maxPenalty)) > 1e-9 {
 		t.Errorf("6 blacklists factor = %v, want %v", got, 1-maxPenalty)
 	}
-	// worst case is bounded, never negative
-	if got := (Entry{Blacklists: 10, FraudScore: 100, SpamhausDrop: true}).QualityFactor(); math.Abs(got-(1-maxPenalty)) > 1e-9 {
-		t.Errorf("worst case factor = %v, want %v", got, 1-maxPenalty)
+	// a drop netblock alone is heavier than any aggregate signal can be, and
+	// combines with one rather than replacing it
+	drop := (Entry{SpamhausDrop: true}).QualityFactor()
+	if math.Abs(drop-(1-netPenalty)) > 1e-9 {
+		t.Errorf("drop-only factor = %v, want %v", drop, 1-netPenalty)
 	}
-	// a drop netblock is a stronger signal than an asn, and both are real ones
-	if drop, asn := (Entry{SpamhausDrop: true}).Risk(), (Entry{SpamhausASN: true}).Risk(); drop <= asn {
-		t.Errorf("drop risk %v <= asn risk %v", drop, asn)
+	if drop >= 1-maxPenalty && maxPenalty > netPenalty {
+		t.Errorf("drop weight %v is not heavier than aggregate weight %v", drop, 1-maxPenalty)
+	}
+	floor := (1 - maxPenalty) * (1 - netPenalty)
+	if got := (Entry{Blacklists: 10, FraudScore: 100, SpamhausDrop: true}).QualityFactor(); math.Abs(got-floor) > 1e-9 {
+		t.Errorf("worst case factor = %v, want %v", got, floor)
+	}
+	// a drop netblock is a stronger signal than an asn
+	if d, a := (Entry{SpamhausDrop: true}).NetRisk(), (Entry{SpamhausASN: true}).NetRisk(); d <= a {
+		t.Errorf("drop risk %v <= asn risk %v", d, a)
 	}
 	for _, e := range []Entry{
 		{Blacklists: 3, FraudScore: 70},
@@ -197,7 +206,7 @@ func TestQualityFactorBounds(t *testing.T) {
 		{SpamhausASN: true},
 		{Blacklists: 2, FraudScore: 40, SpamhausDrop: true, SpamhausASN: true},
 	} {
-		if f := e.QualityFactor(); f < 1-maxPenalty || f > 1 {
+		if f := e.QualityFactor(); f < floor || f > 1 {
 			t.Errorf("%+v factor = %v out of range", e, f)
 		}
 	}
