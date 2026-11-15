@@ -151,9 +151,9 @@ func Run(ctx context.Context, o Options) error {
 		if err != nil {
 			logf("reputation: %v, continuing without", err)
 		} else {
-			ipsumN, fraudN, dropN, asnN := rep.Len()
-			logf("reputation: %d ipsum, %d ffrraud addresses, %d spamhaus netblocks, %d spamhaus asns in %.1fs",
-				ipsumN, fraudN, dropN, asnN, time.Since(t0).Seconds())
+			c := rep.Counts()
+			logf("reputation: %d ipsum, %d ffrraud, %d spamhaus netblocks, %d spamhaus asns, %d tor exits, %d vpn netblocks, %d abuseipdb in %.1fs",
+				c.Ipsum, c.Fraud, c.Drop, c.ASN, c.Tor, c.VPN, c.Abuse, time.Since(t0).Seconds())
 		}
 	}
 
@@ -509,6 +509,9 @@ func writeOutputs(o Options, items []*item, fetchedPerSource map[string]int, sou
 					FraudReports:  e.FraudReports,
 					FraudCategory: e.FraudCategory,
 					FraudType:     e.FraudType,
+					TorExit:       e.TorExit,
+					VPN:           e.VPN,
+					AbuseIPDB:     e.AbuseIPDB,
 					SpamhausDrop:  e.SpamhausDrop,
 					SpamhausASN:   e.SpamhausASN,
 				}

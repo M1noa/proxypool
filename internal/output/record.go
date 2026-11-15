@@ -33,6 +33,9 @@ type ReputationFields struct {
 	FraudReports  int    `json:"fraud_reports"`
 	FraudCategory string `json:"fraud_category"`
 	FraudType     string `json:"fraud_type"`
+	TorExit       bool   `json:"tor_exit"`
+	VPN           bool   `json:"vpn"`
+	AbuseIPDB     bool   `json:"abuseipdb"`
 	SpamhausDrop  bool   `json:"spamhaus_drop"`
 	SpamhausASN   bool   `json:"spamhaus_asn_drop"`
 }

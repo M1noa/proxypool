@@ -1,8 +1,10 @@
-// package reputation tracks three public threat feeds in one compact lookup
+// package reputation tracks the public threat feeds in one compact lookup
 // table: how many blacklists stamparm/ipsum reports an address on,
 // FFRaud-com/ip-fraud-database's 0-100 score, confirmation count, category and
-// infrastructure type, and Spamhaus's DROP and ASN-DROP lists of netblocks and
-// operators they have tied to spam and cybercrime.
+// infrastructure type, Spamhaus's DROP and ASN-DROP lists of netblocks and
+// operators they have tied to spam and cybercrime, the Tor project's exit list,
+// x4bnet's vpn netblocks, and a local mirror of abuseipdb's 100%-confidence
+// blacklist.
 //
 // none of these is a proxy source, so none of it is merged into the records
 // themselves. a run loads the feeds once, attaches what they say about an
@@ -48,6 +50,19 @@ var (
 	dropURL    = "https://www.spamhaus.org/drop/drop.txt"
 	dropv6URL  = "https://www.spamhaus.org/drop/dropv6.txt"
 	asnDropURL = "https://www.spamhaus.org/drop/asndrop.json"
+
+	// the tor exit list is the foundation's own bulk export: every relay
+	// currently publishing an exit policy, one address per line.
+	torURL = "https://check.torproject.org/torbulkexitlist"
+
+	// x4bnet's vpn list is cidr netblocks known to sell vpn endpoints. a vpn is
+	// not an abuse signal on its own, so it is published and not scored.
+	vpnURL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv4.txt"
+
+	// abuseipdb's blacklist has no free api tier worth using per address, but
+	// borestad mirrors the 100%-confidence export to a file we can hold locally.
+	// rows carry a trailing "# CC ASxxxx org" annotation.
+	abuseURL = "https://raw.githubusercontent.com/borestad/blocklist-abuseipdb/main/abuseipdb-s100-30d.ipv4"
 )
 
 const (
@@ -136,18 +151,30 @@ type Entry struct {
 	FraudReports  int    `json:"fraud_reports"`
 	FraudCategory string `json:"fraud_category"`
 	FraudType     string `json:"fraud_type"`
+	TorExit       bool   `json:"tor_exit"`
+	VPN           bool   `json:"vpn"`
+	AbuseIPDB     bool   `json:"abuseipdb"`
 	SpamhausDrop  bool   `json:"spamhaus_drop"`
 	SpamhausASN   bool   `json:"spamhaus_asn_drop"`
 }
 
 // Risk is the 0..1 strength of the aggregate feeds' signals, combined so that
 // being on many blacklists and being scored badly by ffrraud reinforce each
-// other without either one alone reaching 1.
+// other without either one alone reaching 1. an abuseipdb row is already the
+// strong end of that scale: it means 100%-confidence reports inside 30 days, so
+// it saturates the blacklist half on its own.
+//
+// tor exits and vpn endpoints are published but deliberately absent here. on a
+// list of proxies, being an exit node is closer to a feature than a defect, and
+// neither says anything about whether the endpoint misbehaves.
 func (e Entry) Risk() float64 {
-	if e.Blacklists == 0 && e.FraudScore == 0 {
+	if e.Blacklists == 0 && e.FraudScore == 0 && !e.AbuseIPDB {
 		return 0
 	}
 	listRisk := math.Min(1, float64(e.Blacklists)/listCap)
+	if e.AbuseIPDB {
+		listRisk = 1
+	}
 	fraudRisk := math.Min(1, float64(e.FraudScore)/100)
 	return 1 - (1-listRisk)*(1-fraudRisk)
 }
@@ -181,27 +208,91 @@ type Feed struct {
 	v4 map[uint32]uint32
 	v6 map[[16]byte]uint32
 
-	drop4 []netRange
-	drop6 []netip.Prefix
-	asn   map[uint32]struct{}
+	drop rangeSet
+	asn  map[uint32]struct{}
+
+	// the netblock feeds. all four are the same shape, so one matcher serves
+	// them; only drop and abuse weigh on the score.
+	tor   rangeSet
+	vpn   rangeSet
+	abuse rangeSet
 
 	ipsumN int
 	fraudN int
 	dropN  int
 	asnN   int
+	torN   int
+	vpnN   int
+	abuseN int
 }
 
-// netRange is one Spamhaus DROP netblock as an inclusive ipv4 interval. ranges
-// are coalesced at load, so lookups are a single binary search.
+// netRange is one ipv4 netblock as an inclusive interval. ranges are coalesced
+// at load, so a lookup is a single binary search.
 type netRange struct{ lo, hi uint64 }
 
-// Len reports how many rows each feed contributed: addresses for ipsum and
-// ffrraud, netblocks for drop, asns for asn-drop.
-func (f *Feed) Len() (ipsum, fraud, drop, asn int) {
-	if f == nil {
-		return 0, 0, 0, 0
+// rangeSet is a coalesced ipv4 interval table plus the ipv6 prefixes that do not
+// fit an interval. every netblock feed here lands in one of these, and ipv6
+// lists run to a few dozen rows, so those are scanned instead of indexed.
+type rangeSet struct {
+	v4 []netRange
+	v6 []netip.Prefix
+}
+
+func (s *rangeSet) add(p netip.Prefix) {
+	p = p.Masked()
+	if !p.IsValid() {
+		return
 	}
-	return f.ipsumN, f.fraudN, f.dropN, f.asnN
+	if p.Addr().Is4() {
+		b := p.Addr().As4()
+		size := uint64(1) << (32 - p.Bits())
+		lo := uint64(binary.BigEndian.Uint32(b[:])) &^ (size - 1)
+		s.v4 = append(s.v4, netRange{lo: lo, hi: lo + size - 1})
+		return
+	}
+	s.v6 = append(s.v6, p)
+}
+
+// finalize sorts and coalesces the ipv4 intervals. the binary search in
+// contains relies on them not overlapping, which is ours to guarantee rather
+// than upstream's.
+func (s *rangeSet) finalize() {
+	sort.Slice(s.v4, func(i, j int) bool { return s.v4[i].lo < s.v4[j].lo })
+	merged := s.v4[:0]
+	for _, r := range s.v4 {
+		if n := len(merged); n > 0 && r.lo <= merged[n-1].hi+1 {
+			merged[n-1].hi = max(merged[n-1].hi, r.hi)
+			continue
+		}
+		merged = append(merged, r)
+	}
+	s.v4 = merged
+}
+
+func (s *rangeSet) contains(addr netip.Addr) bool {
+	if k, ok := addr4(addr); ok {
+		i := sort.Search(len(s.v4), func(i int) bool { return s.v4[i].hi >= uint64(k) })
+		return i < len(s.v4) && s.v4[i].lo <= uint64(k)
+	}
+	for _, p := range s.v6 {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// Counts is how many rows each feed contributed: addresses for ipsum and
+// ffrraud, netblocks for the range feeds, asns for asn-drop.
+type Counts struct {
+	Ipsum, Fraud, Drop, ASN, Tor, VPN, Abuse int
+}
+
+func (f *Feed) Counts() Counts {
+	if f == nil {
+		return Counts{}
+	}
+	return Counts{f.ipsumN, f.fraudN, f.dropN, f.asnN, f.torN, f.vpnN, f.abuseN}
 }
 
 // Entry looks an address up. asn may be 0 when the caller has not resolved one;
@@ -218,30 +309,17 @@ func (f *Feed) Entry(ip string, asn int) (Entry, bool) {
 	}
 	v, listed := f.get(addr)
 	e := decode(v)
-	e.SpamhausDrop = f.inDrop(addr)
+	e.TorExit = f.tor.contains(addr)
+	e.VPN = f.vpn.contains(addr)
+	e.AbuseIPDB = f.abuse.contains(addr)
+	e.SpamhausDrop = f.drop.contains(addr)
 	if asn > 0 {
 		_, e.SpamhausASN = f.asn[uint32(asn)]
 	}
-	if !listed && !e.SpamhausDrop && !e.SpamhausASN {
+	if !listed && !e.TorExit && !e.VPN && !e.AbuseIPDB && !e.SpamhausDrop && !e.SpamhausASN {
 		return Entry{}, false
 	}
 	return e, true
-}
-
-// inDrop reports whether addr is inside a Spamhaus DROP netblock. the ipv4
-// ranges are coalesced and sorted, so this is one binary search; the ipv6 list
-// is a few dozen prefixes and is simply scanned.
-func (f *Feed) inDrop(addr netip.Addr) bool {
-	if k, ok := addr4(addr); ok {
-		i := sort.Search(len(f.drop4), func(i int) bool { return f.drop4[i].hi >= uint64(k) })
-		return i < len(f.drop4) && f.drop4[i].lo <= uint64(k)
-	}
-	for _, p := range f.drop6 {
-		if p.Contains(addr) {
-			return true
-		}
-	}
-	return false
 }
 
 func (f *Feed) get(addr netip.Addr) (uint32, bool) {
@@ -330,10 +408,18 @@ func Load(ctx context.Context, cacheDir string) (*Feed, error) {
 	f.dropN = load("spamhaus drop", dropURL, "spamhaus-drop.txt", f.parseDrop)
 	// the ipv6 half shares drop's budget: it is the same list, and a v6 file
 	// that fails should not read as "no drop data" when the v4 one loaded.
-	f.dropN += load("spamhaus drop v6", dropv6URL, "spamhaus-dropv6.txt", f.parseDrop6)
+	f.dropN += load("spamhaus drop v6", dropv6URL, "spamhaus-dropv6.txt", f.parseDrop)
+	f.drop.finalize()
 	f.asnN = load("spamhaus asn-drop", asnDropURL, "spamhaus-asndrop.json", f.parseASNDrop)
+	f.torN = load("tor exit list", torURL, "tor-exit.txt", f.parseTor)
+	f.tor.finalize()
+	f.vpnN = load("x4bnet vpn", vpnURL, "vpn-ipv4.txt", f.parseVPN)
+	f.vpn.finalize()
+	f.abuseN = load("abuseipdb mirror", abuseURL, "abuseipdb-s100-30d.ipv4", f.parseAbuse)
+	f.abuse.finalize()
 
-	if f.ipsumN == 0 && f.fraudN == 0 && f.dropN == 0 && f.asnN == 0 {
+	if f.ipsumN == 0 && f.fraudN == 0 && f.dropN == 0 && f.asnN == 0 &&
+		f.torN == 0 && f.vpnN == 0 && f.abuseN == 0 {
 		return nil, fmt.Errorf("no threat feed loaded (%s)", strings.Join(problems, "; "))
 	}
 	return f, nil
@@ -464,55 +550,48 @@ func (f *Feed) parseFraud(path string) (int, error) {
 	})
 }
 
-// parseDrop reads Spamhaus DROP's "cidr ; SBLref" rows into coalesced ipv4
-// ranges. the comment header splits to an empty cidr and is skipped.
+// parseDrop reads Spamhaus DROP's "cidr ; SBLref" rows. the v4 and v6 files
+// share it and the same range set; only the row counts differ. the comment
+// header splits to an empty cidr and is skipped.
 func (f *Feed) parseDrop(path string) (int, error) {
-	var ranges []netRange
-	n, err := eachLine(path, func(line string) bool {
-		pfx, ok := parseDropLine(line)
-		if !ok || !pfx.Addr().Is4() {
-			return false
-		}
-		b := pfx.Addr().As4()
-		size := uint64(1) << (32 - pfx.Bits())
-		lo := uint64(binary.BigEndian.Uint32(b[:])) &^ (size - 1)
-		ranges = append(ranges, netRange{lo: lo, hi: lo + size - 1})
-		return true
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	// DROP itself is already merged, but coalescing costs nothing and makes the
-	// "no two ranges overlap" assumption the binary search relies on ours.
-	sort.Slice(ranges, func(i, j int) bool { return ranges[i].lo < ranges[j].lo })
-	merged := ranges[:0]
-	for _, r := range ranges {
-		if n := len(merged); n > 0 && r.lo <= merged[n-1].hi+1 {
-			merged[n-1].hi = max(merged[n-1].hi, r.hi)
-			continue
-		}
-		merged = append(merged, r)
-	}
-	f.drop4 = merged
-	return n, nil
-}
-
-// parseDrop6 is parseDrop for the ipv6 list, kept as prefixes because a /32
-// netblock does not fit an interval.
-func (f *Feed) parseDrop6(path string) (int, error) {
-	var pfx []netip.Prefix
-	n, err := eachLine(path, func(line string) bool {
+	return eachLine(path, func(line string) bool {
 		p, ok := parseDropLine(line)
-		if !ok || p.Addr().Is4() {
+		if !ok {
 			return false
 		}
-		pfx = append(pfx, p.Masked())
+		f.drop.add(p)
 		return true
 	})
-	f.drop6 = pfx
-	return n, err
 }
+
+// parseNetlist reads a plain netblock list: one cidr or bare address per line,
+// optionally followed by "# ..." (the abuseipdb mirror annotates every row with
+// country, asn and operator). a bare address becomes a host prefix, so an
+// address list and a netblock list are the same parser.
+func parseNetlist(path string, into *rangeSet) (int, error) {
+	return eachLine(path, func(line string) bool {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return false
+		}
+		if p, err := netip.ParsePrefix(line); err == nil {
+			into.add(p)
+			return true
+		}
+		if addr, err := netip.ParseAddr(line); err == nil {
+			into.add(netip.PrefixFrom(addr, addr.BitLen()))
+			return true
+		}
+		return false
+	})
+}
+
+func (f *Feed) parseTor(path string) (int, error)   { return parseNetlist(path, &f.tor) }
+func (f *Feed) parseVPN(path string) (int, error)   { return parseNetlist(path, &f.vpn) }
+func (f *Feed) parseAbuse(path string) (int, error) { return parseNetlist(path, &f.abuse) }
 
 // parseDropLine pulls the cidr off a "; SBLref"-suffixed DROP row.
 func parseDropLine(line string) (netip.Prefix, bool) {

@@ -43,6 +43,21 @@ const testASN = `{"asn":64500,"rir":"arin","asname":"TEST-AS"}
 {"type":"metadata","timestamp":1794778004,"records":2}
 `
 
+// testTor is the plain address list shape; testVPN is netblocks; testAbuse
+// mirrors the annotated abuseipdb export, a bare address and a netblock with a
+// trailing "# CC ASxxxx org" comment.
+const testTor = `171.25.193.25
+109.70.100.4
+`
+
+const testVPN = `198.18.0.0/15
+`
+
+const testAbuse = `# Aggregated Blocklist for AbuseIPDB
+192.0.2.0/25  # NL  AS64500   EXAMPLE BV
+192.0.2.200  # US  AS64501   EXAMPLE NET
+`
+
 // testFeeds is every url Load reads, so a test that forgets one fails loudly
 // instead of reaching the real upstream.
 var testFeeds = map[string]string{
@@ -51,18 +66,24 @@ var testFeeds = map[string]string{
 	"/drop.txt":     testDrop,
 	"/dropv6.txt":   testDrop6,
 	"/asndrop.json": testASN,
+	"/tor.txt":      testTor,
+	"/vpn.txt":      testVPN,
+	"/abuse.txt":    testAbuse,
 }
 
 // swapURLs points the package vars at srv and returns the restore func.
 func swapURLs(srv *httptest.Server) func() {
 	oldIpsum, oldFraud := ipsumURL, fraudURL
 	oldDrop, oldDrop6, oldASN := dropURL, dropv6URL, asnDropURL
+	oldTor, oldVPN, oldAbuse := torURL, vpnURL, abuseURL
 	ipsumURL, fraudURL = srv.URL+"/ipsum.txt", srv.URL+"/fraud.csv"
 	dropURL, dropv6URL = srv.URL+"/drop.txt", srv.URL+"/dropv6.txt"
 	asnDropURL = srv.URL + "/asndrop.json"
+	torURL, vpnURL, abuseURL = srv.URL+"/tor.txt", srv.URL+"/vpn.txt", srv.URL+"/abuse.txt"
 	return func() {
 		ipsumURL, fraudURL = oldIpsum, oldFraud
 		dropURL, dropv6URL, asnDropURL = oldDrop, oldDrop6, oldASN
+		torURL, vpnURL, abuseURL = oldTor, oldVPN, oldAbuse
 	}
 }
 
@@ -96,8 +117,8 @@ func loadTest(t *testing.T) *Feed {
 func TestLoadMergesAllFeeds(t *testing.T) {
 	f := loadTest(t)
 
-	if ipsum, fraud, drop, asn := f.Len(); ipsum != 3 || fraud != 4 || drop != 3 || asn != 2 {
-		t.Errorf("Len() = %d, %d, %d, %d; want 3, 4, 3, 2", ipsum, fraud, drop, asn)
+	if c := f.Counts(); c != (Counts{Ipsum: 3, Fraud: 4, Drop: 3, ASN: 2, Tor: 2, VPN: 1, Abuse: 2}) {
+		t.Errorf("Counts() = %+v; want 3, 4, 3, 2, 2, 1, 2", c)
 	}
 
 	e, ok := f.Entry("1.2.3.4", 0)
@@ -166,6 +187,36 @@ func TestSpamhausNetblocksAndASN(t *testing.T) {
 	// an asn that is not listed, on an address no other feed lists
 	if _, ok := f.Entry("8.8.4.4", 64000); ok {
 		t.Error("clean address with a clean asn reported")
+	}
+}
+
+func TestTorVPNAndAbuseIPDB(t *testing.T) {
+	f := loadTest(t)
+
+	// an exit node and a vpn netblock list an address no other feed knows
+	if e, ok := f.Entry("171.25.193.25", 0); !ok || !e.TorExit || e.VPN {
+		t.Errorf("171.25.193.25 = %+v, ok=%v", e, ok)
+	}
+	if e, ok := f.Entry("198.19.7.7", 0); !ok || !e.VPN || e.TorExit {
+		t.Errorf("198.19.7.7 = %+v, ok=%v", e, ok)
+	}
+	// the mirror mixes netblocks and bare addresses, both with annotations
+	if e, ok := f.Entry("192.0.2.9", 0); !ok || !e.AbuseIPDB {
+		t.Errorf("192.0.2.9 = %+v, ok=%v", e, ok)
+	}
+	if e, ok := f.Entry("192.0.2.200", 0); !ok || !e.AbuseIPDB {
+		t.Errorf("192.0.2.200 = %+v, ok=%v", e, ok)
+	}
+	if _, ok := f.Entry("192.0.2.130", 0); ok {
+		t.Error("192.0.2.130 outside the /25 and the bare row")
+	}
+	// an abuseipdb row alone saturates the aggregate signal
+	if got := (Entry{AbuseIPDB: true}).Risk(); got != 1 {
+		t.Errorf("abuseipdb risk = %v, want 1", got)
+	}
+	// tor and vpn say nothing about quality
+	if got := (Entry{TorExit: true, VPN: true}).QualityFactor(); got != 1 {
+		t.Errorf("tor/vpn factor = %v, want 1", got)
 	}
 }
 
