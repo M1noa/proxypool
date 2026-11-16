@@ -42,6 +42,21 @@ const (
 	schemaVersion = 4
 )
 
+// the table is rewritten in place every run, and duckdb has no VACUUM: a DELETE
+// frees blocks for reuse but never returns them to the filesystem, so the file
+// ratchets up with every run's churn until it is rewritten. github warns on this
+// blob past 50mb and refuses it past 100mb, which the workflow would only
+// discover at the push. the live table measures ~46mb, so rewriting at 48mb
+// keeps the file under the warning and leaves nothing to ratchet; hardMax is
+// where the rows themselves are the problem and a rewrite cannot help, so the
+// run fails instead of publishing a file that cannot be pushed.
+//
+// vars, not consts, only so the compaction test can lower them.
+var (
+	compactAbove int64 = 48 << 20
+	hardMax      int64 = 90 << 20
+)
+
 // stageBatch is how many rows get appended into staging before a flush, and it
 // is the only bound on duckdb's memory here: a staged row pins buffer-manager
 // blocks the appender holds and the buffer manager therefore cannot evict, so
@@ -146,7 +161,8 @@ type Score struct {
 
 // History wraps output/history.duckdb.
 type History struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Open is History.__init__: connect and ensure proxy_state exists, dropping
@@ -165,7 +181,7 @@ func Open(path string) (*History, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := &History{db: db}
+	h := &History{db: db, path: path}
 	if err := h.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -537,6 +553,94 @@ func (h *History) Prune(now time.Time) (int, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+// Compact rewrites the database into a fresh file when the current one has
+// grown past compactAbove, returning the size before and after. it closes the
+// handle: nothing reads through it after this in a run, and Close is a no-op on
+// an already closed handle.
+//
+// this is the only way to reclaim the blocks UpdateState's delete-then-insert
+// leaves behind. duckdb reuses them, so the file does not grow by the whole
+// churn each run, but it does not hand them back either, and the published blob
+// has a hard ceiling at github.
+func (h *History) Compact() (before, after int64, err error) {
+	st, err := os.Stat(h.path)
+	if err != nil {
+		return 0, 0, err
+	}
+	before = st.Size()
+	if before <= compactAbove {
+		return before, before, nil
+	}
+
+	tmp := h.path + ".compact"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return before, before, err
+	}
+	// attach under a name that cannot collide with a user database, copy both
+	// tables, and checkpoint so the copy is a complete file before it is closed.
+	// the path is ours, but a quote in the output directory would still end the
+	// literal early
+	lit := strings.ReplaceAll(tmp, "'", "''")
+	if _, err := h.db.Exec("ATTACH '" + lit + "' AS compact"); err != nil {
+		return before, before, err
+	}
+	for _, q := range []string{
+		"CREATE TABLE compact.meta AS SELECT * FROM meta",
+		"CREATE TABLE compact.proxy_state AS SELECT * FROM proxy_state",
+		"CHECKPOINT compact",
+		"DETACH compact",
+	} {
+		if _, err := h.db.Exec(q); err != nil {
+			os.Remove(tmp)
+			return before, before, err
+		}
+	}
+
+	// the rename below replaces the only copy of the history, so prove the
+	// rewrite before dropping the original: same row count, readable file
+	var want, got int
+	if err := h.db.QueryRow("SELECT count(*) FROM proxy_state").Scan(&want); err != nil {
+		os.Remove(tmp)
+		return before, before, err
+	}
+	chk, err := sql.Open("duckdb", tmp+"?access_mode=read_only")
+	if err != nil {
+		os.Remove(tmp)
+		return before, before, err
+	}
+	err = chk.QueryRow("SELECT count(*) FROM proxy_state").Scan(&got)
+	chk.Close()
+	if err != nil {
+		os.Remove(tmp)
+		return before, before, err
+	}
+	if got != want {
+		os.Remove(tmp)
+		return before, before, fmt.Errorf("compact: rewrote %d of %d rows", got, want)
+	}
+
+	if err := h.db.Close(); err != nil {
+		os.Remove(tmp)
+		return before, before, err
+	}
+	// a wal left by the closed handle belongs to the inode about to be replaced;
+	// replaying it against the new file would be replaying the wrong writes
+	os.Remove(h.path + ".wal")
+	if err := os.Rename(tmp, h.path); err != nil {
+		os.Remove(tmp)
+		return before, before, err
+	}
+	st, err = os.Stat(h.path)
+	if err != nil {
+		return before, 0, err
+	}
+	after = st.Size()
+	if after > hardMax {
+		return before, after, fmt.Errorf("compact: %dmb of history does not fit in a github blob", after>>20)
+	}
+	return before, after, nil
 }
 
 // parseTS is parse_ts.

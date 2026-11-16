@@ -365,6 +365,13 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 		if err != nil {
 			return nil, stats, err
 		}
+		before, after, err := hist.Compact()
+		if err != nil {
+			return nil, stats, err
+		}
+		if before != after {
+			logf("history: compacted %.1fmb -> %.1fmb", float64(before)/1e6, float64(after)/1e6)
+		}
 		if err := hist.Close(); err != nil {
 			return nil, stats, err
 		}

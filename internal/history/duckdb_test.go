@@ -425,6 +425,74 @@ func TestPruneDropsOldRows(t *testing.T) {
 	}
 }
 
+// TestCompactRewritesAndKeepsRows: past the threshold the file is rebuilt from
+// its own contents, so the rewrite has to come back with every row, and the
+// handle has to be dead afterwards rather than pointing at the replaced inode.
+func TestCompactRewritesAndKeepsRows(t *testing.T) {
+	old := compactAbove
+	compactAbove = 1 // any existing file is over the threshold
+	t.Cleanup(func() { compactAbove = old })
+
+	h := openTest(t)
+	ts := "2026-01-01T00:00:00Z"
+	outcomes := []check.Outcome{
+		{IP: "1.2.3.4", Port: 8080, Proto: "http", Alive: true, RT: ip(200)},
+		{IP: "5.6.7.8", Port: 1080, Proto: "socks5", Alive: false},
+	}
+	if err := h.UpdateState(outcomes, ts, map[Key]State{}); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	before, after, err := h.Compact()
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	// duckdb hands a rewritten file at least one block, so after is not <= before
+	// for a handful of rows; only that the swap produced a real file matters here
+	if before == 0 || after == 0 {
+		t.Errorf("sizes %d -> %d, want both non-zero", before, after)
+	}
+
+	// read the swapped-in file through a fresh handle, the way the next run will
+	path := h.path
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	h2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open after compact: %v", err)
+	}
+	defer h2.Close()
+
+	state, err := h2.StateMap()
+	if err != nil {
+		t.Fatalf("StateMap: %v", err)
+	}
+	if len(state) != 2 {
+		t.Fatalf("StateMap after compact = %d rows, want 2", len(state))
+	}
+	st, ok := state[Key{"1.2.3.4", 8080, "http"}]
+	if !ok || st.OKCount != 1 || st.RTEMA == nil || *st.RTEMA != 200 {
+		t.Errorf("row lost by compact: %+v", st)
+	}
+}
+
+// TestCompactSkipsSmallFile: the rewrite only exists to reclaim churn, so a
+// file under the threshold is left alone.
+func TestCompactSkipsSmallFile(t *testing.T) {
+	h := openTest(t)
+	before, after, err := h.Compact()
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if before != after || before == 0 {
+		t.Errorf("sizes %d -> %d, want the file untouched", before, after)
+	}
+	if _, err := h.StateMap(); err != nil {
+		t.Errorf("handle is unusable after a skipped compact: %v", err)
+	}
+}
+
 // fakeSource is a rand.Source returning a fixed value from Int63, so
 // rand.Rand.Float64() is deterministic across a test.
 type fakeSource struct{ v int64 }
