@@ -282,7 +282,14 @@ export default {
         console.log(JSON.stringify({ message: "api error", status: e.status, code: e.code, detail: e.message }));
         return errorResponse(format, e.status, e.code, e.message);
       }
-      console.error(JSON.stringify({ message: "unhandled error", error: e instanceof Error ? e.message : String(e), path: url.pathname }));
+      console.error(
+        JSON.stringify({
+          message: "unhandled error",
+          error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+          path: url.pathname,
+        }),
+      );
       return errorResponse(format, 500, "internal_error", "something broke on our end");
     }
   },

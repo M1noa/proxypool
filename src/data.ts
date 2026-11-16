@@ -36,6 +36,7 @@ export interface Dataset {
 
 let cached: Dataset | null = null;
 let inflight: Promise<Dataset> | null = null;
+let retryAt = 0;
 
 function isRecord(v: unknown): v is ProxyRecord {
   if (typeof v !== "object" || v === null) return false;
@@ -65,8 +66,19 @@ async function fetchUpstream(env: Env): Promise<Dataset> {
     throw new ApiError(502, "upstream_error", `upstream returned HTTP ${res.status}`);
   }
 
-  // bounded payload (a few mb), safe to buffer
-  const text = await res.text();
+  // bounded payload (a few mb), safe to buffer. a body read can fail on its own
+  // (reset mid-transfer, truncated edge object) with headers already ok, and
+  // that used to surface as a bare 500 -- keep it in the api error family
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (e) {
+    throw new ApiError(
+      502,
+      "upstream_truncated",
+      `upstream body read failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 
   let raw: unknown;
   try {
@@ -83,14 +95,36 @@ async function fetchUpstream(env: Env): Promise<Dataset> {
   return { records, raw: text, fetchedAt: Date.now() };
 }
 
+// after a failed refresh, hold off before trying upstream again -- otherwise
+// every request in a stale isolate retries the same broken fetch
+const RETRY_COOLDOWN_MS = 30_000;
+
 export async function getDataset(env: Env): Promise<Dataset> {
   const ttlMs = Number(env.CACHE_TTL_SECONDS || "30") * 1000;
-  if (cached && Date.now() - cached.fetchedAt < ttlMs) return cached;
+  const now = Date.now();
+  if (cached && (now - cached.fetchedAt < ttlMs || now < retryAt)) return cached;
 
   // coalesce concurrent refreshes within one isolate
   inflight ??= fetchUpstream(env).finally(() => {
     inflight = null;
   });
-  cached = await inflight;
-  return cached;
+  try {
+    cached = await inflight;
+    retryAt = 0;
+    return cached;
+  } catch (e) {
+    // a failed refresh is no reason to stop serving the dataset we already
+    // have: it is at worst a few minutes older than the one we wanted
+    const stale = cached;
+    if (!stale) throw e;
+    retryAt = Date.now() + RETRY_COOLDOWN_MS;
+    console.error(
+      JSON.stringify({
+        message: "upstream refresh failed, serving stale",
+        age_s: Math.round((Date.now() - stale.fetchedAt) / 1000),
+        error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+      }),
+    );
+    return stale;
+  }
 }
