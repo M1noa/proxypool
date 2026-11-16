@@ -14,7 +14,7 @@ import (
 )
 
 // EncodeTo ports write_outputs' json.dumps(records, indent=2): array of
-// objects, fixed key order per record (15 keys, 16 with reputation, 21 with
+// objects, fixed key order per record (18 keys, 19 with reputation, 27 with
 // Check set), no trailing newline, non-ascii escaped to \uXXXX, <>& left
 // unescaped - the opposite of encoding/json's defaults on both axes, hence
 // hand-rolled.
