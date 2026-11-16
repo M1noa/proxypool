@@ -70,8 +70,24 @@ func TestCheckAllSkipFiltering(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, stats, _ := CheckAll(ctx, []*extract.Record{fullySkipped, kept}, opts)
+	_, stats, _, _ := CheckAll(ctx, []*extract.Record{fullySkipped, kept}, opts)
 	if stats.Skipped != 1 {
 		t.Errorf("skipped = %d, want 1", stats.Skipped)
+	}
+}
+
+// TestCheckAllReportsUncalibrated: without a baseline no probe runs, so the
+// empty result must come with an error. a caller that read the empty slice as
+// "the pool is dead" would publish an empty proxies.json over a working one.
+func TestCheckAllReportsUncalibrated(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // calibrate's pings fail immediately, no network, no 5s wait
+
+	_, stats, outcomes, err := CheckAll(ctx, []*extract.Record{rec()}, Options{Concurrency: 1})
+	if err == nil {
+		t.Fatal("expected an error when calibration cannot establish a baseline")
+	}
+	if len(outcomes) != 0 || stats.Alive != 0 {
+		t.Errorf("uncalibrated run reported %d outcomes, %d alive", len(outcomes), stats.Alive)
 	}
 }

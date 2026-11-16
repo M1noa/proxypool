@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -135,6 +136,12 @@ func Run(ctx context.Context, o Options) error {
 		logf("")
 		logf("fetched %d raw records from %d sources in %.1fs", len(raw), len(sources), time.Since(t0).Seconds())
 		logSlowest(stats, logf)
+		// nothing came back from any source: publish is gated on the .complete
+		// marker, so the honest outcome is a failed run that leaves the last pool
+		// in place, not an empty one that replaces it
+		if len(raw) == 0 {
+			return fmt.Errorf("fetch: no records from %d sources", len(sources))
+		}
 	}
 
 	records := finalize(merge(raw))
@@ -323,7 +330,7 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 	logf("checking %d proxies...", len(recs))
 	t0 := time.Now()
 	cctx, cancel := context.WithDeadline(ctx, tRun.Add(o.Budget))
-	alive, stats, outcomes := check.CheckAll(cctx, recs, check.Options{
+	alive, stats, outcomes, cerr := check.CheckAll(cctx, recs, check.Options{
 		Concurrency: o.Concurrency,
 		Skip:        skips,
 		Speedtest:   !o.SkipSpeedtest,
@@ -332,6 +339,11 @@ func checkPhase(ctx context.Context, o Options, items []*item, tRun time.Time, w
 		Timeout:     o.Timeout,
 	})
 	cancel()
+	// fatal rather than an empty publish: a run that probed nothing has no
+	// evidence the pool is empty, only that this machine could not measure it
+	if cerr != nil {
+		return nil, stats, cerr
+	}
 	logf("alive=%d dead=%d skipped=%d revived=%d baseline=%dms in %.1fs",
 		stats.Alive, stats.Dead, stats.Skipped, stats.Revived, stats.BaselineMS, time.Since(t0).Seconds())
 

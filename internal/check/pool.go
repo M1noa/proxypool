@@ -132,7 +132,7 @@ func raiseFDLimit(concurrency int) uint64 {
 // dead ones, and report run-level stats plus every outcome actually probed.
 // ctx's deadline, if any, is check_all's `deadline` backstop — the pool is
 // cut short there and whatever was probed so far is still returned.
-func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (alive []*extract.Record, stats Stats, outcomes []Outcome) {
+func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (alive []*extract.Record, stats Stats, outcomes []Outcome, err error) {
 	var skipped int
 	logf := opts.Logf
 	if logf == nil {
@@ -160,8 +160,11 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 
 	c := &Checker{timeout: opts.Timeout}
 	if err := c.calibrate(ctx); err != nil {
+		// no baseline means not one probe ran, so an empty result here would be
+		// indistinguishable from "every proxy is dead". the caller has to be able
+		// to tell that apart before it publishes an empty pool.
 		logf("checker: %v", err)
-		return nil, Stats{Skipped: skipped}, nil
+		return nil, Stats{Skipped: skipped}, nil, fmt.Errorf("calibrate: %w", err)
 	}
 
 	// raise before deriving: the descriptor limit we actually get is one of the
@@ -264,7 +267,7 @@ func CheckAll(ctx context.Context, records []*extract.Record, opts Options) (ali
 		Revived:    revived,
 		BaselineMS: pyfmt.Round(c.baseline),
 	}
-	return alive, stats, outcomes
+	return alive, stats, outcomes, nil
 }
 
 // runPool is run_pool: concurrency workers pull indices off a shared cursor
