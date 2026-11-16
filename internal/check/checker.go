@@ -405,20 +405,23 @@ func (c *Checker) checkOne(ctx context.Context, r *extract.Record, plan []string
 		outcomes []probeOutcome
 	}
 	ch := make(chan result, 1)
+	// read once: the wall must not depend on a global that a caller could
+	// swap under the abandoned goroutine below
+	wall, fn := recordWall(), checkRecordFn
 	go func() {
 		// armed from inside the record's own goroutine so the dump below is
 		// this record's stack, not the whole pool's
-		st := time.AfterFunc(recordWall(), func() {
+		st := time.AfterFunc(wall, func() {
 			buf := make([]byte, 1<<20)
 			n := runtime.Stack(buf, false)
-			fmt.Fprintf(os.Stderr, "\nrecord %s:%d stuck past %s\n%s\n", r.IP, r.Port, recordWall(), buf[:n])
+			fmt.Fprintf(os.Stderr, "\nrecord %s:%d stuck past %s\n%s\n", r.IP, r.Port, wall, buf[:n])
 		})
 		defer st.Stop()
-		ok, po := checkRecordFn(c, ctx, r, plan)
+		ok, po := fn(c, ctx, r, plan)
 		ch <- result{ok: ok, outcomes: po}
 	}()
 
-	t := time.NewTimer(recordWall())
+	t := time.NewTimer(wall)
 	defer t.Stop()
 	select {
 	case res := <-ch:
