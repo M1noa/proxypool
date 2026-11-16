@@ -37,9 +37,8 @@ var (
 	reAndroid = regexp.MustCompile(`Android ([\d.]+)`)
 	reIOS     = regexp.MustCompile(`iPhone OS (\d+[_.]\d+(?:[_.]\d+)?)`)
 	// wimb typo variant seen in the wild: "CPU iPhone 18_7_8" (missing OS)
-	reIPhone  = regexp.MustCompile(`CPU iPhone (\d+[_.]\d+(?:[_.]\d+)?)`)
-	reCPUOS   = regexp.MustCompile(`CPU OS (\d+[_.]\d+(?:[_.]\d+)?)`)
-	reLinux   = regexp.MustCompile(`Linux| X11;`)
+	reIPhone = regexp.MustCompile(`CPU iPhone (\d+[_.]\d+(?:[_.]\d+)?)`)
+	reCPUOS  = regexp.MustCompile(`CPU OS (\d+[_.]\d+(?:[_.]\d+)?)`)
 )
 
 // wimbGuides are the whatismybrowser latest-ua guide slugs worth scraping.
